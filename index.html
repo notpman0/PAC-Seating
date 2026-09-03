@@ -607,14 +607,18 @@
 
     UPPER_ROWS.forEach(l=>{
       appendRowLabel("upperLeft", l, "left");
+      appendRowLabel("upperLeft", l, "right");   // also in the gap next to upperCenter
       appendRowLabel("upperCenter", l, "left");
       appendRowLabel("upperCenter", l, "right");
+      appendRowLabel("upperRight", l, "left");   // also in the gap next to upperCenter
       appendRowLabel("upperRight", l, "right");
     });
     LOWER_ROWS.forEach(l=>{
       appendRowLabel("lowerLeft", l, "left");
+      appendRowLabel("lowerLeft", l, "right");   // also in the gap next to lowerCenter
       appendRowLabel("lowerCenter", l, "left");
       appendRowLabel("lowerCenter", l, "right");
+      appendRowLabel("lowerRight", l, "left");   // also in the gap next to lowerCenter
       appendRowLabel("lowerRight", l, "right");
     });
     // AB/AD (14 seats, narrower) naturally sit inset from AC/AE (15 seats,

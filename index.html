@@ -76,11 +76,17 @@
   .legend-key{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:6px;}
   .legend-key .seat{width:14px;height:14px;font-size:0;}
 
-  #canvasWrap{flex:1;overflow:auto;background:
+  #canvasWrap{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;background:
       linear-gradient(90deg, rgba(0,0,0,.035) 1px, transparent 1px) 0 0/24px 24px,
       linear-gradient(rgba(0,0,0,.035) 1px, transparent 1px) 0 0/24px 24px, var(--bg);
       user-select:none;-webkit-user-select:none;-moz-user-select:none;}
-  #venue{width:max-content;margin:0 auto;padding:34px 50px 60px;}
+  /* Centers the map in both axes when it's smaller than the visible area
+     (the common case at 100% zoom on most screens) — was only horizontally
+     centered before (margin:0 auto), with no vertical centering at all, so
+     the map sat pinned to the top with dead space below it. Still just
+     scrolls normally (flex item, not absolutely positioned) if the map is
+     ever bigger than the window. */
+  #venue{width:max-content;padding:34px 50px 60px;flex-shrink:0;}
   /* #canvas is a fixed 1400x840px surface (a 1000x600 logical-unit grid at
      1.4x) — every child (seats, section boxes, labels, stage, exits) is
      positioned with absolute left/top computed from that grid in JS (see
@@ -610,7 +616,14 @@
       appendRowLabel("lowerCenter", l, "right");
       appendRowLabel("lowerRight", l, "right");
     });
-    REAR_ROWS.forEach(l=> appendRowLabel("rearCenter", l, "left"));
+    // AB/AD (14 seats, narrower) naturally sit inset from AC/AE (15 seats,
+    // wider) under the brick-interlock stagger, so their own leftmost seat
+    // is further right than AC/AE's — anchoring each label to its own row
+    // would zig-zag the label column. Anchor all four to AC's (the wider
+    // rows') left edge instead, so the labels line up in one straight column.
+    const rearCenterAcRow = s.rearCenter.rows.find(r=>r.label==="AC");
+    const rearCenterLabelX = rearCenterAcRow ? Math.min(...rearCenterAcRow.seats.map(seat=>seat.x))-16 : undefined;
+    REAR_ROWS.forEach(l=> appendRowLabel("rearCenter", l, "left", rearCenterLabelX));
 
     SEAT_SECTIONS.forEach(key=>{
       const sec = s[key];
@@ -627,12 +640,15 @@
   // distant margin) — reads its actual min/max x from the live seat data, so
   // a narrow wedge row gets a label close to its short span, and a
   // recalibrated row's label follows it automatically.
-  function appendRowLabel(sectionKey, rowLabel, side){
+  function appendRowLabel(sectionKey, rowLabel, side, forcedX){
     const sec = state.sections[sectionKey];
     const row = sec.rows.find(r=>r.label===rowLabel);
     if(!row || !row.seats.length) return;
-    const xs = row.seats.map(s=>s.x);
-    const anchorX = side==="left" ? Math.min(...xs)-16 : Math.max(...xs)+16;
+    let anchorX = forcedX;
+    if(anchorX === undefined){
+      const xs = row.seats.map(s=>s.x);
+      anchorX = side==="left" ? Math.min(...xs)-16 : Math.max(...xs)+16;
+    }
     const y = row.seats[0].y;
     canvasEl.appendChild(rowLabelEl(rowLabel, anchorX, y));
   }
@@ -1224,7 +1240,31 @@
   }
   document.getElementById("zoomIn").addEventListener("click", ()=>{ zoom += 0.1; applyZoom(); });
   document.getElementById("zoomOut").addEventListener("click", ()=>{ zoom -= 0.1; applyZoom(); });
-  zoomLabelEl.addEventListener("click", ()=>{ zoom = 1; applyZoom(); });
+  zoomLabelEl.addEventListener("click", fitZoomToScreen);
+
+  // #venue's own real box (#canvas 1400x840 plus its CSS padding) — the
+  // actual footprint that needs to fit inside #canvasWrap for the map to be
+  // visible with no scrolling. Computed from padding shorthand "34px 50px
+  // 60px" (top/right-left/bottom) rather than hardcoded, so it can't drift
+  // out of sync with the CSS the way the PNG export values once did.
+  function venueContentSize(){
+    const cs = getComputedStyle(venueEl);
+    const padW = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const padH = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    return { w: CANVAS_W + padW, h: CANVAS_H + padH };
+  }
+  // Default/"reset" view: scale the whole map down (never up past 100%) so
+  // it fits entirely inside the visible canvas area with no scrolling on a
+  // normal window, then let the flex centering on #canvasWrap center it.
+  function fitZoomToScreen(){
+    const availW = venueWrapEl.clientWidth;
+    const availH = venueWrapEl.clientHeight;
+    const content = venueContentSize();
+    if(availW <= 0 || availH <= 0) return; // not laid out yet
+    zoom = Math.min(1, availW / content.w, availH / content.h);
+    applyZoom();
+  }
+  window.addEventListener("resize", fitZoomToScreen);
 
   document.getElementById("addGroupBtn").addEventListener("click", ()=>{
     const name = prompt("Class name (e.g. Year 13, 10A):", "New Class");
@@ -1957,6 +1997,7 @@ User instruction: "${userPrompt}"`;
   });
 
   render();
+  fitZoomToScreen();
   showTip("Welcome — pick a class, then click or drag across seats to assign it");
 })();
 </script>

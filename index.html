@@ -301,6 +301,12 @@
     UpperLeft:   {x1:100, x2:300, y1:48,  y2:222},
     UpperCenter: {x1:360, x2:640, y1:48,  y2:222},
     UpperRight:  {x1:700, x2:900, y1:48,  y2:222},
+    // LowerLeft/LowerRight: x2/x1 respectively are the fixed flush edge the
+    // stepped wedge anchors against (placeRows only reads that one side for
+    // "end"/"start" anchors — the other x value here is unused headroom, not
+    // a hard clamp). The widest step (13 seats, see buildSections) still fits
+    // comfortably inside this box, so row labels (computed from each row's
+    // own live seat extents, not this box) never clip against BalL/BalR.
     LowerLeft:   {x1:100, x2:300, y1:238, y2:488},
     LowerCenter: {x1:360, x2:640, y1:238, y2:488},
     LowerRight:  {x1:700, x2:900, y1:238, y2:488},
@@ -385,10 +391,15 @@
       upperRight:  section("UpperRight",  placeRows(explicitRows([["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
 
       // ----- Main lower block (rows M-V), 3 columns + 2 balconies -----
-      lowerLeft:   section("LowerLeft",   placeRows(explicitRows([["M",13],["N",13],["O",11],["P",10],["Q",9],["R",8],["S",7],["T",6],["U",5],["V",4]]), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
+      // Stepped wedge: rows are grouped in blocks of 2-3 that share the same
+      // count (so they share the same flush "end"/"start" boundary edge),
+      // then the count drops to the next block — a blocky staircase profile
+      // instead of the old row-by-row taper (13,13,11,10,9,8,7,6,5,4).
+      // Groups: [M,N,O]=13, [P,Q,R]=10, [S,T]=7, [U,V]=4.
+      lowerLeft:   section("LowerLeft",   placeRows(explicitRows([["M",13],["N",13],["O",13],["P",10],["Q",10],["R",10],["S",7],["T",7],["U",4],["V",4]]), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
       lowerCenter: section("LowerCenter", placeRows(uniformRows(["M","N","O","P","Q","R","S","T","U","V"], 16), b.LowerCenter.x1, b.LowerCenter.x2, "center")),
       // Mirror image of LowerLeft, same as UpperRight mirrors UpperLeft.
-      lowerRight:  section("LowerRight",  placeRows(explicitRows([["M",13],["N",13],["O",11],["P",10],["Q",9],["R",8],["S",7],["T",6],["U",5],["V",4]]), b.LowerRight.x1, b.LowerRight.x2, "start")),
+      lowerRight:  section("LowerRight",  placeRows(explicitRows([["M",13],["N",13],["O",13],["P",10],["Q",10],["R",10],["S",7],["T",7],["U",4],["V",4]]), b.LowerRight.x1, b.LowerRight.x2, "start")),
 
       // 3 columns x 17 rows, matching the reference photo exactly.
       // Both sides identical: 3 columns x 17 rows, 51 seats each.

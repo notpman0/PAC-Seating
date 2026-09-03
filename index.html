@@ -1,0 +1,1903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VSA Seating Planner</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --border:#d9dce1; --text:#1f2430; --muted:#68707d;
+    --accent:#3b6ef6; --accent-soft:#e8eefe; --danger:#e0453c; --seat-empty:#cfd6e2;
+    --teacher:#c0392b; --radius:10px; --shadow:0 1px 3px rgba(20,24,34,.08), 0 1px 2px rgba(20,24,34,.04);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+  #app{display:flex;flex-direction:column;height:100vh;}
+
+  /* ---------- Top bar ---------- */
+  #topbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap;box-shadow:var(--shadow);z-index:5;}
+  #topbar h1{font-size:15px;margin:0 14px 0 0;font-weight:700;white-space:nowrap;}
+  .modebar{display:flex;background:var(--bg);border-radius:8px;padding:3px;gap:2px;}
+  .modebar button{border:none;background:transparent;padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;}
+  .modebar button.active{background:var(--accent);color:#fff;}
+  .btn{border:1px solid var(--border);background:#fff;padding:7px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
+  .btn:hover{background:var(--bg);}
+  .btn.danger{color:var(--danger);border-color:#f3c9c6;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn:disabled:hover{background:#fff;}
+  #calibrateBtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  /* ---------- Calibration mode ---------- */
+  #calibBar{display:none;align-items:center;gap:8px;padding:8px 14px;background:#fff6db;border-bottom:1px solid #eed488;font-size:12.5px;flex-wrap:wrap;}
+  #calibBar.show{display:flex;}
+  #calibBar .calib-label{font-weight:700;color:#8a6d1a;white-space:nowrap;}
+  #calibBar .calib-hint{color:#8a6d1a;white-space:nowrap;}
+  #calibBar input[type=text]{width:220px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;}
+  #calibBar input[type=number]{width:52px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;}
+  #canvas.calibrating .seat.abs.calib-selected{outline:3px solid #f2a30f;outline-offset:2px;}
+  .calib-img-list{display:flex;gap:6px;flex-wrap:wrap;}
+  .calib-img-chip{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #eed488;border-radius:14px;padding:4px 8px 4px 11px;font-size:11.5px;font-weight:600;cursor:pointer;color:#8a6d1a;}
+  .calib-img-chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .calib-img-chip .calib-img-del{border:none;background:none;cursor:pointer;font-size:12px;color:inherit;opacity:.65;padding:0;line-height:1;}
+  .calib-img-chip .calib-img-del:hover{opacity:1;}
+  #canvas.calibrating{background-repeat:no-repeat;background-position:0 0;}
+  #canvas.calibrating .seat.abs{opacity:.72;cursor:move;}
+
+  /* ---------- AI Generate ---------- */
+  #aiToggleBtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  #aiBar{display:none;align-items:center;gap:8px;padding:8px 14px;background:#f1ecff;border-bottom:1px solid #cdb8f7;font-size:12.5px;flex-wrap:wrap;}
+  #aiBar.show{display:flex;}
+  #aiBar .calib-label{font-weight:700;color:#5a3ea6;white-space:nowrap;}
+  #aiBar .calib-hint{color:#5a3ea6;white-space:nowrap;}
+  #aiBar input[type=text]{flex:1;min-width:280px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;}
+  #canvas.calibrating .seat.abs:hover{opacity:1;}
+  .modebar.calib-disabled button{opacity:.35;pointer-events:none;}
+  .spacer{flex:1;}
+  #stats{font-size:12px;color:var(--muted);white-space:nowrap;}
+
+  /* ---------- Layout ---------- */
+  #main{flex:1;display:flex;min-height:0;}
+  #sidebar{width:250px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);overflow-y:auto;padding:14px;}
+  #sidebar h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;}
+  .group-row{display:flex;flex-direction:column;gap:3px;padding:7px 8px;border-radius:8px;border:2px solid transparent;margin-bottom:4px;}
+  .group-row:hover{background:var(--bg);}
+  .group-row-top{display:flex;align-items:center;gap:8px;}
+  .swatch{width:16px;height:16px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.15);cursor:pointer;}
+  .group-name{border:none;background:transparent;font-size:13px;font-weight:600;flex:1;min-width:0;color:var(--text);}
+  .group-name:focus{outline:1px solid var(--accent);border-radius:4px;}
+  .group-row-bottom{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);padding-left:24px;}
+  .group-row-bottom.over{color:var(--danger);}
+  .group-target{width:44px;padding:2px 4px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:center;color:inherit;background:#fff;}
+  .group-row-bottom.over .group-target{border-color:var(--danger);}
+  .group-del{opacity:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;}
+  .group-row:hover .group-del{opacity:1;}
+  #addGroupBtn{width:100%;margin-top:6px;}
+  #legendHint{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5;padding:10px;background:var(--bg);border-radius:8px;}
+  .legend-key{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:6px;}
+  .legend-key .seat{width:14px;height:14px;font-size:0;}
+
+  #canvasWrap{flex:1;overflow:auto;background:
+      linear-gradient(90deg, rgba(0,0,0,.035) 1px, transparent 1px) 0 0/24px 24px,
+      linear-gradient(rgba(0,0,0,.035) 1px, transparent 1px) 0 0/24px 24px, var(--bg);
+      user-select:none;-webkit-user-select:none;-moz-user-select:none;}
+  #venue{width:max-content;margin:0 auto;padding:34px 50px 60px;}
+  /* #canvas is a fixed 1400x840px surface (a 1000x600 logical-unit grid at
+     1.4x) — every child (seats, section boxes, labels, stage, exits) is
+     positioned with absolute left/top computed from that grid in JS (see
+     px()), not flex/grid flow. Existing zoom (CSS `zoom` on #venue) still
+     scales the whole thing responsively without needing per-element math. */
+  #canvas{position:relative;width:1400px;height:840px;background:#fff;border-radius:10px;box-shadow:var(--shadow);}
+
+  .stage{position:absolute;transform:translateX(-50%);background:#1f2430;color:#fff;font-weight:800;letter-spacing:.12em;padding:14px 100px;border-radius:6px;font-size:18px;clip-path:polygon(6% 0,94% 0,100% 100%,0% 100%);}
+
+  .exit-row{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;align-items:center;gap:14px;padding:0 30px;color:var(--danger);font-weight:800;font-size:13px;box-sizing:border-box;}
+  .exit-row .line{flex:1;height:5px;background:#1f2430;border-radius:2px;}
+  .exit-row .arrow{border:none;background:#e0453c;color:#fff;font-weight:800;font-size:12px;padding:6px 12px;border-radius:5px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+
+  .balcony{position:absolute;box-sizing:border-box;border:3px solid #1f2430;border-radius:8px;padding:8px 3px;}
+  .balcony-title{text-align:center;font-size:15px;font-weight:800;letter-spacing:.04em;margin-bottom:8px;color:#0b0d11;}
+  .balcony-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;}
+  .balcony-spacer{width:20px;height:20px;}
+
+  .aisle-gap{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;align-items:center;gap:10px;padding:0 40px;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;box-sizing:border-box;}
+  .aisle-gap::before,.aisle-gap::after{content:"";flex:1;height:0;border-top:2px dashed #b7bfcc;}
+
+  .row-label{position:absolute;transform:translate(-50%,-50%);font-size:14px;font-weight:800;color:var(--text);pointer-events:none;}
+
+  .class-highlight-svg{position:absolute;pointer-events:none;overflow:visible;}
+  .class-highlight-label{position:absolute;transform:translate(-50%,-50%);font-weight:800;font-size:26px;letter-spacing:.02em;color:#0b0d11;
+    text-shadow:0 0 5px #fff,0 0 5px #fff,0 0 6px #fff,0 0 9px #fff,0 0 9px #fff,0 0 12px #fff;white-space:nowrap;pointer-events:none;}
+
+  .seat{width:20px;height:20px;border-radius:50%;background:#eef1f7;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#1f2430;cursor:pointer;border:2px solid #2b3240;box-sizing:border-box;}
+  .seat.abs{position:absolute;transform:translate(-50%,-50%);}
+  .seat.banned{background:repeating-linear-gradient(45deg,#f3c9c6,#f3c9c6 3px,#fff 3px,#fff 6px);color:#e0453c;cursor:pointer;border-color:#e0453c;}
+  .seat.assigned{color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.4);border-color:rgba(0,0,0,.35);}
+  .seat.teacher{background:var(--teacher);color:#fff;cursor:pointer;font-size:8.5px;border-color:#7a2118;}
+  .seat:hover{outline:3px solid var(--accent);z-index:5;}
+  .seat.previewsel{outline:3px solid #1f2430;outline-offset:1px;z-index:5;}
+
+  #tip{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:#1f2430;color:#fff;padding:8px 16px;border-radius:20px;font-size:12.5px;box-shadow:var(--shadow);z-index:20;pointer-events:none;opacity:0;transition:opacity .2s;}
+  #tip.show{opacity:1;}
+
+  .seat[data-occ]:hover::after{content:attr(data-occ);position:absolute;bottom:120%;left:50%;transform:translateX(-50%);background:#1f2430;color:#fff;font-size:10px;font-weight:600;padding:3px 6px;border-radius:4px;white-space:nowrap;z-index:10;}
+
+  @media print{
+    @page{ size: landscape; margin: 8mm; }
+    *{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    #topbar,#sidebar,#tip,.marquee,#assignPopup{display:none!important;}
+    #canvasWrap{overflow:visible;background:#fff;}
+    #venue{transform:scale(var(--print-scale, 1));transform-origin:top left;}
+    body{background:#fff;}
+  }
+
+  dialog{border:none;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.2);padding:0;width:340px;}
+  dialog::backdrop{background:rgba(20,24,34,.35);}
+  .dlg-body{padding:18px;}
+  .dlg-body h3{margin:0 0 12px;font-size:15px;}
+  .dlg-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;background:var(--bg);border-radius:0 0 12px 12px;}
+
+  /* ---------- Marquee drag-select ---------- */
+  .marquee{position:fixed;border:2px solid var(--accent);background:rgba(59,110,246,.15);z-index:15;pointer-events:none;display:none;border-radius:2px;}
+
+  /* ---------- Assign popup ---------- */
+  #assignPopup{position:fixed;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(20,24,34,.25);padding:14px;width:250px;z-index:30;display:none;}
+  #assignPopup h4{margin:0 0 8px;font-size:13px;}
+  #assignPopup .ap-count{font-size:11px;color:var(--muted);margin-bottom:10px;}
+  #assignPopup .ap-classes{display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto;margin-bottom:10px;}
+  #assignPopup .ap-class-btn{display:flex;align-items:center;gap:8px;border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:12.5px;font-weight:600;text-align:left;}
+  #assignPopup .ap-class-btn:hover{background:var(--bg);}
+  #assignPopup .ap-class-btn .swatch{width:13px;height:13px;}
+  #assignPopup .ap-divider{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 6px;border-top:1px solid var(--border);padding-top:8px;}
+  #assignPopup .ap-class-btn.current{border-color:var(--accent);background:var(--accent-soft);}
+  #assignPopup .ap-class-btn .current-tag{margin-left:auto;font-size:10px;color:var(--accent);font-weight:700;}
+  #assignPopup .ap-remove-btn{width:100%;font-size:12px;padding:6px;border-radius:7px;border:1px solid #f3c9c6;background:#fff;color:var(--danger);cursor:pointer;font-weight:600;margin-bottom:4px;}
+  #assignPopup .ap-remove-btn:hover{background:#fdf2f1;}
+  #assignPopup input[type=text]{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;margin-bottom:8px;}
+  #assignPopup .ap-color-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  #assignPopup input[type=color]{width:40px;height:32px;border:1px solid var(--border);border-radius:6px;padding:0;cursor:pointer;}
+  #assignPopup .ap-warn{font-size:11px;color:var(--danger);min-height:14px;margin-bottom:6px;}
+  #assignPopup .ap-actions{display:flex;gap:6px;margin-top:4px;}
+  #assignPopup .ap-actions button{flex:1;font-size:12px;padding:7px;border-radius:7px;border:1px solid var(--border);background:#fff;cursor:pointer;font-weight:600;}
+  #assignPopup .ap-actions button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  #assignPopup .ap-actions button.primary:disabled{opacity:.4;cursor:not-allowed;}
+
+  /* ---------- Zoom controls ---------- */
+  .zoombar{display:flex;align-items:center;gap:2px;background:var(--bg);border-radius:8px;padding:3px;}
+  .zoombar button{border:none;background:#fff;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:700;color:var(--text);cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.06);}
+  .zoombar button:hover{background:var(--accent-soft);}
+  .zoombar .zlabel{width:44px;text-align:center;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <h1>🎭 VSA Seating Planner</h1>
+    <div class="modebar">
+      <button data-mode="assign" class="active">Assign Class</button>
+      <button data-mode="ban">Ban Seat</button>
+      <button data-mode="teacher">Teacher Seat</button>
+    </div>
+    <div class="zoombar">
+      <button id="zoomOut" title="Zoom out">−</button>
+      <span class="zlabel" id="zoomLabel" title="Reset zoom">100%</span>
+      <button id="zoomIn" title="Zoom in">+</button>
+    </div>
+    <button class="btn" id="printBtn">Print / PDF</button>
+    <button class="btn" id="exportPngBtn">Export PNG</button>
+    <button class="btn" id="exportBtn">Export JSON</button>
+    <button class="btn" id="importBtn">Import JSON</button>
+    <button class="btn danger" id="clearBtn">Clear Assignments</button>
+    <button class="btn" id="calibrateBtn">📐 Calibrate</button>
+    <button class="btn" id="aiToggleBtn">✨ AI Generate</button>
+    <div class="spacer"></div>
+    <div id="stats"></div>
+  </div>
+  <div id="aiBar">
+    <span class="calib-label">Describe what you want:</span>
+    <input type="text" id="aiPromptInput" placeholder='e.g. "Assign row F in the center block to Year 9" or "Ban seats 1-3 in row V, lower left"'>
+    <button class="btn primary" id="aiGenerateBtn">Generate</button>
+    <span id="aiStatus" class="calib-hint"></span>
+  </div>
+  <div id="calibBar">
+    <span class="calib-label">Calibration Mode:</span>
+    <input type="text" id="calibImageUrl" placeholder="Image URL (e.g. pac-map.png)">
+    <button class="btn" id="calibLoadUrlBtn">Load URL</button>
+    <button class="btn" id="calibUploadBtn">Upload Image…</button>
+    <input type="file" id="calibImageFile" accept="image/*" style="display:none;">
+    <div id="calibImageList" class="calib-img-list"></div>
+    <div class="spacer"></div>
+    <span class="calib-label">Shift+click seat(s) to select:</span>
+    <input type="number" id="calibAddCount" min="1" value="1" title="How many seats to add">
+    <button class="btn" id="calibAddBtn">+ Add Seats</button>
+    <button class="btn danger" id="calibRemoveBtn" disabled>Remove Selected (<span id="calibSelCount">0</span>)</button>
+    <button class="btn" id="calibUndoBtn" title="Undo last drag">↶ Undo</button>
+    <button class="btn" id="calibRedoBtn" title="Redo">↷ Redo</button>
+    <button class="btn danger" id="calibResetBtn" title="Reset every seat back to its computed default position">Reset to Default</button>
+    <span class="calib-hint">Drag seats to line them up with the map, then export.</span>
+    <button class="btn primary" id="exportCoordsBtn">Export Coordinates JSON</button>
+  </div>
+  <div id="main">
+    <div id="sidebar">
+      <h2>Classes</h2>
+      <div id="groupList"></div>
+      <button class="btn" id="addGroupBtn">+ Add Class</button>
+      <div id="legendHint"></div>
+      <div class="legend-key"><div class="seat teacher"></div> Teacher seat</div>
+      <div class="legend-key"><div class="seat banned"></div> Banned seat</div>
+    </div>
+    <div id="canvasWrap">
+      <div id="venue">
+        <div id="canvas"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="tip"></div>
+<div class="marquee" id="marquee"></div>
+<div id="assignPopup">
+  <h4>Assign class</h4>
+  <div class="ap-count" id="apCount"></div>
+  <div class="ap-classes" id="apClasses"></div>
+  <button id="apRemove" class="ap-remove-btn" style="display:none;">Remove assignment</button>
+  <div class="ap-divider">Or create a new class</div>
+  <input type="text" id="apNewName" placeholder="Class name">
+  <div class="ap-color-row">
+    <input type="color" id="apNewColor">
+    <span style="font-size:11.5px;color:var(--muted);">Pick a color</span>
+  </div>
+  <div class="ap-warn" id="apWarn"></div>
+  <div class="ap-actions">
+    <button id="apCancel">Cancel</button>
+    <button class="primary" id="apCreate">Create &amp; Assign</button>
+  </div>
+</div>
+<input type="file" id="fileInput" accept="application/json" style="display:none">
+
+<dialog id="colorDlg">
+  <div class="dlg-body">
+    <h3>Choose color</h3>
+    <input type="color" id="colorPicker" style="width:100%;height:44px;">
+  </div>
+  <div class="dlg-actions">
+    <button class="btn" id="colorCancel">Cancel</button>
+    <button class="btn" id="colorOk">Apply</button>
+  </div>
+</dialog>
+
+<script>
+(function(){
+  "use strict";
+
+  const PALETTE = ["#3b6ef6","#e0453c","#12a350","#f2a30f","#8a4bd6","#0fb5c4","#e0459a","#6b7280"];
+  const LS_KEY = "vsa-seating-plan-v3";
+
+  // ---------- Coordinate-driven venue layout ----------
+  // Canvas is a 1000x600 logical unit grid. Every seat gets an explicit x,y
+  // in that space at build time (not derived at render time from flex flow) —
+  // rendering just maps units -> pixels (see px()) and sets absolute left/top.
+  // Section id scoping (in section()) keeps every seat.id globally unique, so
+  // Assign/Ban/Teacher-toggle/marquee-select — all of which key off seat.id —
+  // work completely unchanged; they never see or care how a seat was placed.
+  const CANVAS_W = 1400, CANVAS_H = 840; // px size of #canvas (1000x600 units, x1.4)
+  function px(unit, axis){ return axis==="w" ? (unit/1000)*CANVAS_W : (unit/600)*CANVAS_H; }
+
+  const ROW_Y = {
+    F:60, G:85, H:110, I:135, J:160, K:185, L:210,
+    M:250, N:275, O:300, P:325, Q:350, R:375, S:400, T:425, U:450, V:475,
+    AB:515, AC:540, AD:565, AE:590,
+    x1:515, x2:540, x3:565, x4:590,
+    y1:515, y2:540, y3:565, y4:590,
+  };
+
+  const SECTION_BOUNDS = {
+    // Left/right wedges shrunk 20 units off their inner (center-aisle) edge —
+    // was 320/680, flush against the center block's own edge (360/640) with
+    // barely room for one row-label. Now there's space for both the wedge's
+    // own label AND the center block's label in the same gap without them
+    // crowding each other. UpperCenter/LowerCenter/RearCenter stay untouched
+    // (they're deliberately aligned with each other).
+    UpperLeft:   {x1:100, x2:300, y1:48,  y2:222},
+    UpperCenter: {x1:360, x2:640, y1:48,  y2:222},
+    UpperRight:  {x1:700, x2:900, y1:48,  y2:222},
+    LowerLeft:   {x1:100, x2:300, y1:238, y2:488},
+    LowerCenter: {x1:360, x2:640, y1:238, y2:488},
+    LowerRight:  {x1:700, x2:900, y1:238, y2:488},
+    // Centered under LowerLeft (100-300, center 200) / LowerRight (700-900,
+    // center 800) respectively, so the rear blocks sit directly below their
+    // matching column instead of floating at an arbitrary offset. Seat pitch
+    // is GLOBAL_PITCH everywhere (see placeRows), same as LowerCenter.
+    RearLeft:    {x1:160, x2:240, y1:505, y2:598},
+    RearCenter:  {x1:360, x2:640, y1:505, y2:598},
+    RearRight:   {x1:760, x2:840, y1:505, y2:598},
+  };
+  const BAL_BOUNDS = {
+    // Width needs to clear two competing constraints: wide enough that 3
+    // seats + gaps + padding actually fit (see .balcony/.balcony-grid CSS —
+    // padding and gap were both trimmed down to shrink the minimum), and
+    // narrow enough that the frame's right edge doesn't run into the nearby
+    // row-letter label (confirmed overlapping at the old width — measured
+    // the label starting ~2.6px before the frame's edge).
+    BalL: {x1:8,   x2:64,  y1:250, y2:475},
+    BalR: {x1:936, x2:992, y1:250, y2:475},
+  };
+
+  // opts.numbers overrides the default descending 1..n numbering with an
+  // explicit seat-number sequence. Every seat carries id, row, seatIndex
+  // (0-based position in its row), num (displayed number), sectionGroup
+  // (its section id), and x/y — absolute coordinates in the 1000x600 grid.
+  function row(label, n, opts){
+    opts = opts || {};
+    const numbers = opts.numbers || Array.from({length:n}, (_,i)=> n-i);
+    const seats = numbers.map((num,i)=>({
+      id: `${label}-${i+1}`, row:label, seatIndex:i, num, status:"open", groupId:null, occupant:"", role:"student",
+      x:0, y:0 // filled in by placeWedge/placeUniform below
+    }));
+    if(opts.teacherStart && seats.length) seats[0].role = "teacher";
+    if(opts.teacherEnd && seats.length) seats[seats.length-1].role = "teacher";
+    return {label, seats};
+  }
+
+  function section(id, rows){
+    // Row labels repeat across sections (e.g. row "F" exists in upperLeft,
+    // upperCenter, AND upperRight), so scope every seat id by its section to
+    // keep ids globally unique, and stamp each seat with its section id.
+    rows.forEach(r => r.seats.forEach(s => { s.id = `${id}-${s.id}`; s.sectionGroup = id; }));
+    return {id, rows};
+  }
+
+  // One fixed seat-to-seat pitch for the WHOLE venue, taken from the center
+  // block (16 seats exactly filling its 280-unit width) — every section uses
+  // this same spacing, so a wedge/staircase section's seats are exactly as
+  // tight as the center's, they just don't fill their full box width.
+  const GLOBAL_PITCH = (SECTION_BOUNDS.UpperCenter.x2-SECTION_BOUNDS.UpperCenter.x1)/16;
+
+  // Assigns y from ROW_Y, and x by anchoring each row against [xStart,xEnd]
+  // at GLOBAL_PITCH spacing — so a row with fewer seats falls short of the
+  // far edge (the diagonal/staircase profile) while a row at the section's
+  // max count fills it exactly.
+  // anchor "end":    seat 1 (last index) sits flush on xEnd, row grows toward xStart.
+  // anchor "start":  seat 1 (last index) sits flush on xStart, row grows toward xEnd.
+  // anchor "center": row is centered within [xStart,xEnd] (used for uniform blocks).
+  function placeRows(rows, xStart, xEnd, anchor){
+    rows.forEach(r=>{
+      const n = r.seats.length;
+      r.seats.forEach((s,i)=>{
+        s.y = ROW_Y[r.label];
+        if(anchor==="end") s.x = xEnd-(n-1-i)*GLOBAL_PITCH;
+        else if(anchor==="start") s.x = xStart+(n-1-i)*GLOBAL_PITCH;
+        else s.x = (xStart+xEnd)/2 - ((n-1)*GLOBAL_PITCH)/2 + i*GLOBAL_PITCH;
+      });
+    });
+    return rows;
+  }
+
+  function explicitRows(pairs){ return pairs.map(([l,n]) => row(l, n)); }
+  function uniformRows(labels, n){ return labels.map(l => row(l, n)); }
+
+  function buildSections(){
+    const b = SECTION_BOUNDS;
+    return {
+      // ----- Upper block (rows F-L), 3 columns -----
+      upperLeft:   section("UpperLeft",   placeRows(explicitRows([["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperLeft.x1, b.UpperLeft.x2, "end")),
+      upperCenter: section("UpperCenter", placeRows(uniformRows(["F","G","H","I","J","K","L"], 16), b.UpperCenter.x1, b.UpperCenter.x2, "center")),
+      // Mirror image of UpperLeft: same per-row seat counts, flush against
+      // the opposite (inner/center-aisle) edge so the wedge grows outward
+      // the other way.
+      upperRight:  section("UpperRight",  placeRows(explicitRows([["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
+
+      // ----- Main lower block (rows M-V), 3 columns + 2 balconies -----
+      lowerLeft:   section("LowerLeft",   placeRows(explicitRows([["M",13],["N",13],["O",11],["P",10],["Q",9],["R",8],["S",7],["T",6],["U",5],["V",4]]), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
+      lowerCenter: section("LowerCenter", placeRows(uniformRows(["M","N","O","P","Q","R","S","T","U","V"], 16), b.LowerCenter.x1, b.LowerCenter.x2, "center")),
+      // Mirror image of LowerLeft, same as UpperRight mirrors UpperLeft.
+      lowerRight:  section("LowerRight",  placeRows(explicitRows([["M",13],["N",13],["O",11],["P",10],["Q",9],["R",8],["S",7],["T",6],["U",5],["V",4]]), b.LowerRight.x1, b.LowerRight.x2, "start")),
+
+      // 3 columns x 17 rows, matching the reference photo exactly.
+      // Both sides identical: 3 columns x 17 rows, 51 seats each.
+      balL: section("BalL", [ balconyRow(51, BAL_BOUNDS.BalL) ]),
+      balR: section("BalR", [ balconyRow(51, BAL_BOUNDS.BalR) ]),
+
+      // ----- Rear rows (AB-AE), separated from the lower block by an aisle -----
+      rearLeft:   section("RearLeft",   placeRows(uniformRows(["x1","x2","x3","x4"], 4), b.RearLeft.x1, b.RearLeft.x2, "center")),
+      rearCenter: section("RearCenter", placeRows(uniformRows(["AB","AC","AD","AE"], 16), b.RearCenter.x1, b.RearCenter.x2, "center")),
+      rearRight:  section("RearRight",  placeRows(uniformRows(["y1","y2","y3","y4"], 4), b.RearRight.x1, b.RearRight.x2, "center")),
+    };
+  }
+
+  // Balcony seats are rendered via CSS Grid (2 fixed columns), not absolute
+  // x/y — but every seat still carries real x/y metadata (2 cols across the
+  // balcony's width, 17 rows down its height) for consistency with every
+  // other seat in the data set.
+  function balconyRow(n, bounds){
+    const seats = [];
+    const cols = 3, rows = Math.ceil(n/cols);
+    const colPitch = (bounds.x2-bounds.x1)/cols;
+    const rowPitch = rows>1 ? (bounds.y2-bounds.y1)/(rows-1) : 0;
+    for(let i=0;i<n;i++){
+      const col = i%cols, ri = Math.floor(i/cols);
+      seats.push({
+        id:`bal-${i+1}`, row:"", seatIndex:i, num:n-i, status:"open", groupId:null, occupant:"", role:"student", balcony:true,
+        x: bounds.x1+(col+0.5)*colPitch, y: bounds.y1+ri*rowPitch
+      });
+    }
+    // Seat #3 (column 1/left, the very back row) doesn't exist on the
+    // reference chart. Just filtering it out shifts every seat after it one
+    // slot earlier in CSS Grid's auto-flow (which packs by array order, not
+    // by each seat's stored x/y) — so the gap would visually land in column
+    // 3 instead of column 1. spacerAt records where to re-insert an empty,
+    // non-interactive placeholder at render time so the gap stays put in
+    // column 1 while columns 2 and 3 still show #2 and #1.
+    const removeIdx = seats.findIndex(s => s.num===3);
+    let spacerAt;
+    if(removeIdx!==-1){ seats.splice(removeIdx,1); spacerAt = removeIdx; }
+    return {label:"", seats, spacerAt};
+  }
+
+  // Snapshots of each seat's default role/x/y, computed once from a pristine
+  // build — used so saveState only needs to persist seats that differ from
+  // their default (including calibration drags).
+  const DEFAULT_ROLES = (function(){
+    const map = new Map();
+    Object.values(buildSections()).forEach(sec=>{
+      sec.rows.forEach(r=>r.seats.forEach(s=>map.set(s.id, s.role)));
+    });
+    return map;
+  })();
+  const DEFAULT_XY = (function(){
+    const map = new Map();
+    Object.values(buildSections()).forEach(sec=>{
+      sec.rows.forEach(r=>r.seats.forEach(s=>map.set(s.id, {x:s.x, y:s.y})));
+    });
+    return map;
+  })();
+  const CALIB_IMG_KEY = "vsa-calib-image";
+
+  function defaultState(){
+    return {
+      groups: [], // no default classes — the user creates their own
+      sections: buildSections()
+    };
+  }
+
+  // Seats added/removed via calibration's Add/Remove Seats aren't part of the
+  // deterministic buildSections() output, so they can't be recovered just by
+  // merging saved status/x/y onto a fresh build like everything else — the
+  // seat wouldn't exist there to merge onto. structuralOps records exactly
+  // what was added or removed, in order, and gets replayed on top of a fresh
+  // build on load, before the normal per-seat merge runs.
+  let structuralOps = [];
+  function applyStructuralOps(sections, ops){
+    ops.forEach(op=>{
+      if(op.type==="add"){
+        const sec = Object.values(sections).find(s=>s.id===op.sectionId);
+        const row = sec && sec.rows.find(r=>r.label===op.rowLabel);
+        if(row && !row.seats.some(s=>s.id===op.seat.id)) row.seats.push(JSON.parse(JSON.stringify(op.seat)));
+      } else if(op.type==="remove"){
+        Object.values(sections).forEach(sec=>sec.rows.forEach(row=>{
+          const idx = row.seats.findIndex(s=>s.id===op.seatId);
+          if(idx!==-1) row.seats.splice(idx,1);
+        }));
+      }
+    });
+    Object.values(sections).forEach(sec=>sec.rows.forEach(row=>{
+      row.seats.forEach((s,i)=>{ s.seatIndex = i; });
+    }));
+  }
+
+  function loadState(){
+    const fresh = defaultState();
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      if(!raw) return fresh;
+      const saved = JSON.parse(raw);
+      // groups come straight from saved data (user-editable, unlimited)
+      if(Array.isArray(saved.groups) && saved.groups.length) fresh.groups = saved.groups;
+      if(Array.isArray(saved.structuralOps)){
+        structuralOps = saved.structuralOps;
+        applyStructuralOps(fresh.sections, structuralOps);
+      }
+      // seat state (status/groupId/occupant) is merged onto the fixed layout by seat id
+      const savedSeats = saved.seatAssignments || {};
+      Object.keys(fresh.sections).forEach(secKey=>{
+        fresh.sections[secKey].rows.forEach(r=>{
+          r.seats.forEach(seat=>{
+            const s = savedSeats[seat.id];
+            if(s){
+              seat.status = s.status; seat.groupId = s.groupId; seat.occupant = s.occupant;
+              if(s.role) seat.role = s.role;
+              if(typeof s.x==="number") seat.x = s.x;
+              if(typeof s.y==="number") seat.y = s.y;
+            }
+          });
+        });
+      });
+      return fresh;
+    }catch(e){ return fresh; }
+  }
+
+  function saveState(){
+    const seatAssignments = {};
+    Object.values(state.sections).forEach(sec=>{
+      sec.rows.forEach(r=>r.seats.forEach(seat=>{
+        const defRole = DEFAULT_ROLES.get(seat.id) || "student";
+        const defXY = DEFAULT_XY.get(seat.id) || {x:0,y:0};
+        const moved = Math.abs(seat.x-defXY.x)>0.01 || Math.abs(seat.y-defXY.y)>0.01;
+        if(seat.status!=="open" || seat.groupId || seat.occupant || seat.role!==defRole || moved){
+          const entry = {status:seat.status, groupId:seat.groupId, occupant:seat.occupant, role:seat.role};
+          if(moved){ entry.x = seat.x; entry.y = seat.y; }
+          seatAssignments[seat.id] = entry;
+        }
+      }));
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify({groups: state.groups, seatAssignments, structuralOps}));
+  }
+
+  let state = loadState();
+  let mode = "assign";
+  let colorTarget = null;
+  let calibrating = false;
+
+  const groupListEl = document.getElementById("groupList");
+  const statsEl = document.getElementById("stats");
+  const tipEl = document.getElementById("tip");
+  const canvasEl = document.getElementById("canvas");
+
+  function showTip(msg){
+    tipEl.textContent = msg;
+    tipEl.classList.add("show");
+    clearTimeout(showTip._t);
+    showTip._t = setTimeout(()=>tipEl.classList.remove("show"), 1800);
+  }
+
+  function groupById(id){ return state.groups.find(g=>g.id===id); }
+  function escapeAttr(s){ return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+  const UPPER_ROWS = ["F","G","H","I","J","K","L"];
+  const LOWER_ROWS = ["M","N","O","P","Q","R","S","T","U","V"];
+  const REAR_ROWS  = ["AB","AC","AD","AE"];
+  const SEAT_SECTIONS = ["upperLeft","upperCenter","upperRight","lowerLeft","lowerCenter","lowerRight","rearLeft","rearCenter","rearRight"];
+
+  // ---------- Rendering ----------
+  // Everything is placed with absolute left/top in px, computed from each
+  // element's position in the 1000x600 unit grid via px(). Class-highlight
+  // boxes are drawn first (so they sit behind seats), labels are computed
+  // from the seats' OWN current x (so they hug the row and follow it if
+  // calibration moves it), then seats, then highlight labels last (always
+  // on top, readable over the seats).
+  function render(){
+    canvasEl.innerHTML = "";
+    const s = state.sections;
+
+    canvasEl.appendChild(balconyEl(s.balL, BAL_BOUNDS.BalL));
+    canvasEl.appendChild(balconyEl(s.balR, BAL_BOUNDS.BalR));
+
+    canvasEl.appendChild(stageEl());
+    canvasEl.appendChild(exitRowEl());
+    canvasEl.appendChild(aisleEl());
+
+    const highlights = renderClassHighlights();
+    highlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
+
+    UPPER_ROWS.forEach(l=>{
+      appendRowLabel("upperLeft", l, "left");
+      appendRowLabel("upperCenter", l, "left");
+      appendRowLabel("upperCenter", l, "right");
+      appendRowLabel("upperRight", l, "right");
+    });
+    LOWER_ROWS.forEach(l=>{
+      appendRowLabel("lowerLeft", l, "left");
+      appendRowLabel("lowerCenter", l, "left");
+      appendRowLabel("lowerCenter", l, "right");
+      appendRowLabel("lowerRight", l, "right");
+    });
+    REAR_ROWS.forEach(l=> appendRowLabel("rearCenter", l, "left"));
+
+    SEAT_SECTIONS.forEach(key=>{
+      const sec = s[key];
+      sec.rows.forEach(r => r.seats.forEach(seat => canvasEl.appendChild(renderSeat(sec, seat, true))));
+    });
+
+    highlights.forEach(h => canvasEl.appendChild(h.label));
+
+    renderGroups();
+    renderStats();
+  }
+
+  // Places a row letter right next to that row's OWN seats (not a fixed
+  // distant margin) — reads its actual min/max x from the live seat data, so
+  // a narrow wedge row gets a label close to its short span, and a
+  // recalibrated row's label follows it automatically.
+  function appendRowLabel(sectionKey, rowLabel, side){
+    const sec = state.sections[sectionKey];
+    const row = sec.rows.find(r=>r.label===rowLabel);
+    if(!row || !row.seats.length) return;
+    const xs = row.seats.map(s=>s.x);
+    const anchorX = side==="left" ? Math.min(...xs)-16 : Math.max(...xs)+16;
+    const y = row.seats[0].y;
+    canvasEl.appendChild(rowLabelEl(rowLabel, anchorX, y));
+  }
+
+  function rowLabelEl(text, xUnit, yUnit){
+    const el = document.createElement("div");
+    el.className = "row-label";
+    el.textContent = text;
+    el.style.left = px(xUnit,"w")+"px";
+    el.style.top = px(yUnit,"h")+"px";
+    return el;
+  }
+
+  // For every (section, class) pairing with 3+ assigned seats, draws one
+  // translucent colored box behind them (sized to their bounding area) with
+  // the class name big and bold in the middle — "highlighted section" for a
+  // whole assigned block, not just individually-colored seat circles.
+  const ROW_PITCH_Y = 25; // vertical spacing between consecutive rows everywhere in the grid
+
+  // Highlights are built from per-ROW contiguous runs of the same class (so a
+  // partial row never shades its unassigned seats), and then consecutive rows
+  // of the SAME class are merged into ONE sharp-cornered "staircase" polygon —
+  // a single connected frame around the whole block, not disconnected boxes —
+  // by extending each row's highlight to the row's full vertical pitch so
+  // touching rows share an edge with no gap or overlap.
+  function renderClassHighlights(){
+    const bySectionClass = new Map(); // "sectionId|groupId" -> segments[]
+    SEAT_SECTIONS.forEach(key=>{
+      const sec = state.sections[key];
+      sec.rows.forEach((row, rowOrder)=>{
+        let run = [], runGroup = null;
+        const flush = ()=>{
+          if(run.length && runGroup){
+            const k = sec.id+"|"+runGroup;
+            if(!bySectionClass.has(k)) bySectionClass.set(k, []);
+            const xs = run.map(s=>s.x);
+            const rowY = run[0].y;
+            bySectionClass.get(k).push({
+              rowOrder,
+              // A seat circle's radius is ~7 units, so a 5-unit pad cut right
+              // through the outer seats' edges — 12 comfortably clears the
+              // full circle with a small margin left over.
+              x1: Math.min(...xs)-9, x2: Math.max(...xs)+9,
+              y1: rowY-ROW_PITCH_Y/2, y2: rowY+ROW_PITCH_Y/2,
+              seats: run
+            });
+          }
+          run = []; runGroup = null;
+        };
+        row.seats.forEach(seat=>{
+          if(seat.role==="teacher" || !seat.groupId){ flush(); return; }
+          if(runGroup && seat.groupId!==runGroup) flush();
+          runGroup = seat.groupId;
+          run.push(seat);
+        });
+        flush();
+      });
+    });
+
+    const out = [];
+    bySectionClass.forEach((segments, key)=>{
+      const g = groupById(key.split("|")[1]);
+      if(!g) return;
+      const allSeats = segments.flatMap(s=>s.seats);
+      if(allSeats.length<3) return; // not worth a highlight for 1-2 seats
+
+      segments.sort((a,b)=>a.rowOrder-b.rowOrder);
+      // split into clusters of PHYSICALLY CONSECUTIVE rows (a gap in row order
+      // — some other class or an empty row in between — starts a new cluster,
+      // so two separated blocks never get fused into one shape)
+      const clusters = [[segments[0]]];
+      for(let i=1;i<segments.length;i++){
+        if(segments[i].rowOrder===segments[i-1].rowOrder+1) clusters[clusters.length-1].push(segments[i]);
+        else clusters.push([segments[i]]);
+      }
+
+      const boxes = clusters.map(cluster => svgPolygonEl(buildStaircasePath(cluster), g.color));
+
+      // One label per class per section, centered on the overall selection.
+      const allX = allSeats.map(s=>s.x), allY = allSeats.map(s=>s.y);
+      const cx = (Math.min(...allX)+Math.max(...allX))/2, cy = (Math.min(...allY)+Math.max(...allY))/2;
+      const label = document.createElement("div");
+      label.className = "class-highlight-label"; // fixed near-black + white halo (CSS) for max contrast, not the class color
+      label.textContent = g.name;
+      label.style.left = px(cx,"w")+"px";
+      label.style.top = px(cy,"h")+"px";
+      out.push({boxes, label});
+    });
+    return out;
+  }
+
+  // Traces the outline of a vertical stack of rectangles (touching edges,
+  // possibly different widths) as one clockwise point list — right side going
+  // down with a horizontal jog wherever the width changes, then the left side
+  // going back up the same way. Sharp 90° corners throughout (no curves).
+  function buildStaircasePath(rows){
+    const pts = [];
+    pts.push([rows[0].x1, rows[0].y1]);
+    pts.push([rows[0].x2, rows[0].y1]);
+    for(let i=0;i<rows.length;i++){
+      pts.push([rows[i].x2, rows[i].y2]);
+      const next = rows[i+1];
+      if(next && next.x2!==rows[i].x2) pts.push([next.x2, rows[i].y2]);
+    }
+    const last = rows[rows.length-1];
+    pts.push([last.x1, last.y2]);
+    for(let i=rows.length-1;i>=0;i--){
+      pts.push([rows[i].x1, rows[i].y1]);
+      const prev = rows[i-1];
+      if(prev && prev.x1!==rows[i].x1) pts.push([prev.x1, rows[i].y1]);
+    }
+    return pts;
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function svgPolygonEl(pts, color){
+    const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+    const x1 = Math.min(...xs), x2 = Math.max(...xs), y1 = Math.min(...ys), y2 = Math.max(...ys);
+    const w = px(x2,"w")-px(x1,"w"), h = px(y2,"h")-px(y1,"h");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "class-highlight-svg");
+    svg.style.left = px(x1,"w")+"px";
+    svg.style.top = px(y1,"h")+"px";
+    svg.style.width = w+"px";
+    svg.style.height = h+"px";
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    const poly = document.createElementNS(SVG_NS, "polygon");
+    poly.setAttribute("points", pts.map(p => `${px(p[0],"w")-px(x1,"w")},${px(p[1],"h")-px(y1,"h")}`).join(" "));
+    poly.setAttribute("fill", hexToRgba(color, 0.25));
+    poly.setAttribute("stroke", color);
+    poly.setAttribute("stroke-width", "2.5");
+    poly.setAttribute("stroke-linejoin", "miter");
+    svg.appendChild(poly);
+    return svg;
+  }
+
+  function hexToRgba(hex, alpha){
+    const [r,g,b] = hexToRgb(hex);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function stageEl(){
+    const el = document.createElement("div");
+    el.className = "stage";
+    el.textContent = "STAGE";
+    el.style.left = px(500,"w")+"px";
+    el.style.top = px(12,"h")+"px";
+    return el;
+  }
+
+  function exitRowEl(){
+    const el = document.createElement("div");
+    el.className = "exit-row";
+    el.style.top = px(225,"h")+"px";
+    const l = document.createElement("button"); l.className="arrow"; l.textContent="◀ EXIT";
+    const line = document.createElement("div"); line.className="line";
+    const r = document.createElement("button"); r.className="arrow"; r.textContent="EXIT ▶";
+    el.append(l, line, r);
+    return el;
+  }
+
+  function aisleEl(){
+    const el = document.createElement("div");
+    el.className = "aisle-gap";
+    el.textContent = "Aisle";
+    el.style.top = px(497,"h")+"px";
+    return el;
+  }
+
+  function balconyEl(sec, bounds){
+    const el = document.createElement("div");
+    el.className = "balcony";
+    el.style.left = px(bounds.x1,"w")+"px";
+    el.style.top = px(bounds.y1,"h")+"px";
+    el.style.width = (px(bounds.x2,"w")-px(bounds.x1,"w"))+"px";
+    // Height is NOT set explicitly — it auto-sizes to whatever the seat grid
+    // actually needs. A fixed height computed from the old 2-column/34-seat
+    // layout was too short for 51 seats in 3 columns, so the grid overflowed
+    // straight past the border (seats rendering outside their own frame).
+    const t = document.createElement("div");
+    t.className = "balcony-title";
+    t.textContent = "Balcony";
+    el.appendChild(t);
+    const grid = document.createElement("div");
+    grid.className = "balcony-grid";
+    const row = sec.rows[0];
+    row.seats.forEach((seat, idx) => {
+      if(row.spacerAt===idx){
+        const spacer = document.createElement("div");
+        spacer.className = "balcony-spacer";
+        grid.appendChild(spacer);
+      }
+      grid.appendChild(renderSeat(sec, seat, false));
+    });
+    el.appendChild(grid);
+    return el;
+  }
+
+  const seatIndex = new Map(); // seat.id -> {seat, sec}
+
+  // abs=true: seat sits directly on #canvas at its own x/y (px-converted).
+  // abs=false: seat is a normal CSS Grid child (used only inside .balcony-grid).
+  function renderSeat(sec, seat, abs){
+    const s = document.createElement("div");
+    s.className = "seat";
+    if(abs){
+      s.classList.add("abs");
+      s.style.left = px(seat.x,"w")+"px";
+      s.style.top = px(seat.y,"h")+"px";
+      if(calibSelectedSeats.has(seat.id)) s.classList.add("calib-selected");
+    }
+    seatIndex.set(seat.id, {seat, sec});
+    s.dataset.seatId = seat.id;
+    if(seat.role==="teacher"){
+      s.classList.add("teacher");
+      s.textContent = "T";
+      s.title = "Teacher seat (Teacher Seat mode to change)";
+      return s;
+    }
+    if(seat.status==="banned") s.classList.add("banned");
+    if(seat.groupId){
+      s.classList.add("assigned");
+      const g = groupById(seat.groupId);
+      if(g) s.style.background = g.color;
+    }
+    s.textContent = seat.status==="banned" ? "✕" : seat.num;
+    if(seat.occupant) s.setAttribute("data-occ", seat.occupant);
+    s.title = seat.occupant ? seat.occupant : `${sec.id} ${seat.row}${seat.num}`;
+    return s;
+  }
+
+  // ---------- Marquee drag-select ----------
+  // Real hit-testing (getBoundingClientRect over every seat) only runs twice per
+  // drag: once (throttled via rAF) for the live preview outline, and once on
+  // release for the real action — never on every raw pointermove — so it stays
+  // smooth even across all ~650 seats.
+  const marqueeEl = document.getElementById("marquee");
+  const venueWrapEl = document.getElementById("canvasWrap");
+  let dragStart = null, didDrag = false, rafPending = false;
+  let activeSelectionIds = new Set(); // accumulates across shift-drags for Assign mode
+
+  function normRect(a, b){
+    const left = Math.min(a.x,b.x), top = Math.min(a.y,b.y);
+    return {left, top, right:Math.max(a.x,b.x), bottom:Math.max(a.y,b.y)};
+  }
+
+  function seatsInRect(rectBox){
+    return [...document.querySelectorAll(".seat[data-seat-id]")].filter(el=>{
+      const b = el.getBoundingClientRect();
+      const cx = b.left+b.width/2, cy = b.top+b.height/2;
+      return cx>=rectBox.left && cx<=rectBox.right && cy>=rectBox.top && cy<=rectBox.bottom;
+    });
+  }
+
+  function clearPreview(){
+    document.querySelectorAll(".seat.previewsel").forEach(el=>el.classList.remove("previewsel"));
+  }
+
+  venueWrapEl.addEventListener("pointerdown", (e)=>{
+    if(calibrating) return; // seat-dragging (see calibration section) owns pointer input while calibrating
+    if(e.target.closest("#assignPopup")) return;
+    if(e.button!==0) return;
+    e.preventDefault(); // stop native text-selection drag artifacts
+    if(!e.shiftKey) closeAssignPopup(); // shift starts an *additive* selection, so keep it open
+    dragStart = {x:e.clientX, y:e.clientY};
+    didDrag = false;
+    window.addEventListener("pointermove", onDragMove);
+    window.addEventListener("pointerup", onDragEnd);
+  });
+
+  function onDragMove(e){
+    const cur = {x:e.clientX, y:e.clientY};
+    if(Math.abs(cur.x-dragStart.x) > 4 || Math.abs(cur.y-dragStart.y) > 4) didDrag = true;
+    if(didDrag){
+      const r = normRect(dragStart, cur);
+      marqueeEl.style.display = "block";
+      marqueeEl.style.left = r.left+"px";
+      marqueeEl.style.top = r.top+"px";
+      marqueeEl.style.width = (r.right-r.left)+"px";
+      marqueeEl.style.height = (r.bottom-r.top)+"px";
+      if(!rafPending){
+        rafPending = true;
+        requestAnimationFrame(()=>{
+          clearPreview();
+          seatsInRect(r).forEach(el=>el.classList.add("previewsel"));
+          rafPending = false;
+        });
+      }
+    }
+  }
+
+  function onDragEnd(e){
+    window.removeEventListener("pointermove", onDragMove);
+    window.removeEventListener("pointerup", onDragEnd);
+    marqueeEl.style.display = "none";
+    clearPreview();
+    const end = {x:e.clientX, y:e.clientY};
+    let seatEls = [];
+    if(didDrag){
+      seatEls = seatsInRect(normRect(dragStart, end));
+    } else {
+      const el = document.elementFromPoint(end.x, end.y);
+      const seatEl = el && el.closest && el.closest(".seat[data-seat-id]");
+      if(seatEl) seatEls = [seatEl];
+    }
+    const shiftHeld = e.shiftKey;
+    dragStart = null;
+    if(!seatEls.length) return;
+    const entries = seatEls.map(el=>seatIndex.get(el.dataset.seatId)).filter(Boolean);
+
+    if(mode==="ban"){
+      applyBan(entries.filter(x=>x.seat.role!=="teacher").map(x=>x.seat));
+    } else if(mode==="teacher"){
+      applyTeacherToggle(entries.map(x=>x.seat));
+    } else if(mode==="assign"){
+      const studentEntries = entries.filter(x=>x.seat.role!=="teacher");
+      if(!studentEntries.length) return;
+      if(!didDrag && shiftHeld && studentEntries.length===1){
+        const seat = studentEntries[0].seat;
+        if(seat.status!=="banned"){
+          const name = prompt("Occupant name (optional):", seat.occupant||"");
+          if(name!==null){ seat.occupant = name.trim(); saveState(); render(); }
+        }
+        return;
+      }
+      const idsThisDrag = studentEntries.map(x=>x.seat.id);
+      if(didDrag && shiftHeld){
+        idsThisDrag.forEach(id=>activeSelectionIds.add(id));
+      } else {
+        activeSelectionIds = new Set(idsThisDrag);
+      }
+      const seatObjs = [...activeSelectionIds].map(id=>seatIndex.get(id)).filter(Boolean).map(x=>x.seat);
+      const seatEntryEls = [...activeSelectionIds].map(id=>document.querySelector(`.seat[data-seat-id="${id}"]`)).filter(Boolean);
+      const bbox = seatEntryEls.length ? boundingClientRectOf(seatEntryEls) : boundingClientRectOf(seatEls);
+      openAssignPopup(seatObjs, bbox);
+    }
+  }
+
+  function boundingClientRectOf(els){
+    let left=Infinity, top=Infinity, right=-Infinity, bottom=-Infinity;
+    els.forEach(el=>{
+      const r = el.getBoundingClientRect();
+      left=Math.min(left,r.left); top=Math.min(top,r.top);
+      right=Math.max(right,r.right); bottom=Math.max(bottom,r.bottom);
+    });
+    return {left, top, right, bottom};
+  }
+
+  function applyBan(seats){
+    const real = seats.filter(s=>s.role!=="teacher");
+    if(!real.length) return;
+    const allBanned = real.every(s=>s.status==="banned");
+    real.forEach(s=>{
+      if(allBanned){ s.status="open"; }
+      else if(s.status!=="banned"){ s.status="banned"; s.groupId=null; s.occupant=""; }
+    });
+    saveState(); render();
+  }
+
+  function applyTeacherToggle(seats){
+    if(!seats.length) return;
+    const allTeacher = seats.every(s=>s.role==="teacher");
+    seats.forEach(s=>{
+      if(allTeacher){ s.role = "student"; }
+      else { s.role = "teacher"; s.status = "open"; s.groupId = null; s.occupant = ""; }
+    });
+    saveState(); render();
+  }
+
+  // ---------- Assign popup ----------
+  const assignPopupEl = document.getElementById("assignPopup");
+  const apCountEl = document.getElementById("apCount");
+  const apClassesEl = document.getElementById("apClasses");
+  const apNewName = document.getElementById("apNewName");
+  const apNewColor = document.getElementById("apNewColor");
+  const apWarn = document.getElementById("apWarn");
+  const apCreateBtn = document.getElementById("apCreate");
+  let pendingSeats = [];
+
+  function hexToRgb(hex){
+    const v = hex.replace("#","");
+    return [parseInt(v.substring(0,2),16), parseInt(v.substring(2,4),16), parseInt(v.substring(4,6),16)];
+  }
+  function colorDistance(hex1, hex2){
+    const [r1,g1,b1]=hexToRgb(hex1), [r2,g2,b2]=hexToRgb(hex2);
+    const rmean=(r1+r2)/2, dr=r1-r2, dg=g1-g2, db=b1-b2;
+    return Math.sqrt((2+rmean/256)*dr*dr + 4*dg*dg + (2+(255-rmean)/256)*db*db);
+  }
+  const CONTRAST_THRESHOLD = 110;
+  function conflictingGroup(hex){
+    let closest = null, minDist = Infinity;
+    state.groups.forEach(g=>{
+      const d = colorDistance(hex, g.color);
+      if(d < minDist){ minDist = d; closest = g; }
+    });
+    return (closest && minDist < CONTRAST_THRESHOLD) ? closest : null;
+  }
+  function suggestColor(){
+    const candidates = PALETTE.concat(["#d63384","#20c997","#6610f2","#fd7e14","#198754","#0d6efd","#6f42c1","#dc3545","#0dcaf0","#795548"]);
+    for(const c of candidates){ if(!conflictingGroup(c)) return c; }
+    for(let i=0;i<40;i++){
+      const c = "#"+Math.floor(Math.random()*16777215).toString(16).padStart(6,"0");
+      if(!conflictingGroup(c)) return c;
+    }
+    return "#888888";
+  }
+
+  function openAssignPopup(seats, bbox){
+    const assignable = seats.filter(s=>s.status!=="banned");
+    if(!assignable.length){ showTip("All selected seats are banned"); return; }
+    pendingSeats = assignable;
+    const alreadyAssigned = assignable.filter(s=>s.groupId);
+    const sameGroupId = alreadyAssigned.length===assignable.length && alreadyAssigned.length
+      ? assignable.every(s=>s.groupId===assignable[0].groupId) ? assignable[0].groupId : null
+      : null;
+    let countText = `${assignable.length} seat${assignable.length>1?"s":""} selected`;
+    if(sameGroupId){
+      const g = groupById(sameGroupId);
+      if(g) countText += ` — currently ${g.name}`;
+    } else if(alreadyAssigned.length){
+      countText += ` (${alreadyAssigned.length} already assigned)`;
+    }
+    apCountEl.textContent = countText;
+    apClassesEl.innerHTML = "";
+    state.groups.forEach(g=>{
+      const btn = document.createElement("button");
+      btn.className = "ap-class-btn" + (sameGroupId===g.id ? " current" : "");
+      btn.innerHTML = `<span class="swatch" style="border-radius:4px;"></span><span>${escapeAttr(g.name)}</span>` + (sameGroupId===g.id ? `<span class="current-tag">current</span>` : "");
+      btn.querySelector(".swatch").style.background = g.color;
+      btn.addEventListener("click", ()=>{
+        assignable.forEach(s=>{ s.groupId = g.id; });
+        saveState(); render(); closeAssignPopup();
+      });
+      apClassesEl.appendChild(btn);
+    });
+    document.getElementById("apRemove").style.display = alreadyAssigned.length ? "block" : "none";
+    apNewName.value = "";
+    apNewColor.value = suggestColor();
+    validateNewColor();
+
+    assignPopupEl.style.display = "block";
+    const popW = 250, popH = assignPopupEl.offsetHeight || 340;
+    let left = bbox.right + 14;
+    if(left + popW > window.innerWidth - 10) left = bbox.left - popW - 14;
+    if(left < 10) left = Math.min(window.innerWidth - popW - 10, Math.max(10, bbox.left));
+    let top = bbox.top;
+    if(top + popH > window.innerHeight - 10) top = Math.max(10, window.innerHeight - popH - 10);
+    assignPopupEl.style.left = left+"px";
+    assignPopupEl.style.top = top+"px";
+  }
+
+  function closeAssignPopup(){
+    assignPopupEl.style.display = "none";
+    pendingSeats = [];
+    activeSelectionIds = new Set();
+  }
+
+  function validateNewColor(){
+    const conflict = conflictingGroup(apNewColor.value);
+    if(conflict){
+      apWarn.textContent = `This color is too close to "${conflict.name}" — choose another.`;
+      apCreateBtn.disabled = true;
+    } else {
+      apWarn.textContent = "";
+      apCreateBtn.disabled = false;
+    }
+  }
+  apNewColor.addEventListener("input", validateNewColor);
+
+  apCreateBtn.addEventListener("click", ()=>{
+    if(apCreateBtn.disabled) return;
+    const name = apNewName.value.trim();
+    if(!name){ apWarn.textContent = "Give the class a name first."; return; }
+    const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color: apNewColor.value, targetCount:0};
+    state.groups.push(g);
+    pendingSeats.forEach(s=>{ s.groupId = g.id; });
+    saveState(); render(); closeAssignPopup();
+  });
+  document.getElementById("apCancel").addEventListener("click", closeAssignPopup);
+  document.getElementById("apRemove").addEventListener("click", ()=>{
+    pendingSeats.forEach(s=>{ s.groupId = null; s.occupant = ""; });
+    saveState(); render(); closeAssignPopup();
+  });
+  // Close only on a click truly outside the canvas (sidebar/topbar). A click
+  // that starts on blank space *inside* the canvas is a valid marquee-drag
+  // start point and must stay governed by venueWrapEl's own shift-aware logic —
+  // closing it here regardless of Shift was breaking additive selection.
+  document.addEventListener("pointerdown", (e)=>{
+    if(assignPopupEl.style.display!=="block") return;
+    if(e.target.closest("#assignPopup")) return;
+    if(e.target.closest("#canvasWrap")) return;
+    closeAssignPopup();
+  });
+
+  function allSeatSections(){
+    return Object.values(state.sections).filter(v=>Array.isArray(v.rows));
+  }
+
+  function renderGroups(){
+    groupListEl.innerHTML = "";
+    state.groups.forEach(g=>{
+      const rowEl = document.createElement("div");
+      rowEl.className = "group-row";
+      const count = allSeatSections().reduce((n,s)=> n + s.rows.reduce((m,r)=> m + r.seats.filter(x=>x.role!=="teacher" && x.groupId===g.id).length, 0), 0);
+      const target = g.targetCount || 0;
+      rowEl.innerHTML = `
+        <div class="group-row-top">
+          <span class="swatch"></span>
+          <input type="text" class="group-name" value="${escapeAttr(g.name)}">
+          <button class="group-del">✕</button>
+        </div>
+        <div class="group-row-bottom${target>0 && count>target ? " over" : ""}">
+          <span class="group-assigned">${count} seated</span>
+          <span>/</span>
+          <input type="number" class="group-target" min="0" step="1" value="${target}" title="Target number of students in this class (0 = no target)">
+          <span>students</span>
+        </div>
+      `;
+      rowEl.querySelector(".swatch").style.background = g.color;
+      rowEl.querySelector(".swatch").addEventListener("click",(e)=>{ e.stopPropagation(); openColorDlg(g.id, g.color); });
+      const nameInput = rowEl.querySelector(".group-name");
+      nameInput.addEventListener("input", e=>{ g.name=e.target.value; saveState(); });
+      nameInput.addEventListener("click", e=>e.stopPropagation());
+      const targetInput = rowEl.querySelector(".group-target");
+      const bottomEl = rowEl.querySelector(".group-row-bottom");
+      targetInput.addEventListener("click", e=>e.stopPropagation());
+      targetInput.addEventListener("input", e=>{
+        g.targetCount = Math.max(0, parseInt(e.target.value, 10) || 0);
+        saveState();
+        bottomEl.classList.toggle("over", g.targetCount>0 && count>g.targetCount);
+      });
+      rowEl.querySelector(".group-del").addEventListener("click",(e)=>{
+        e.stopPropagation();
+        if(confirm(`Delete class "${g.name}"? Seats assigned to it will be unassigned.`)){
+          allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{ if(seat.role!=="teacher" && seat.groupId===g.id) seat.groupId=null; })));
+          state.groups = state.groups.filter(x=>x.id!==g.id);
+          saveState(); render();
+        }
+      });
+      groupListEl.appendChild(rowEl);
+    });
+    updateLegendHint();
+  }
+
+  function updateLegendHint(){
+    const hint = document.getElementById("legendHint");
+    if(mode==="assign"){
+      hint.textContent = "Assign mode: click a seat, or drag a box across many seats, then choose a class in the popup — or create a new one with its own color. Click an already-assigned seat to change its class, or use \"Remove assignment\" in the popup to clear it. Rename a class (e.g. \"Year 9\" → \"Year 10\") right in the sidebar list. Shift+click one seat to type a specific student's name. Hold Shift while dragging to add more seats to the same selection before choosing a class.";
+    } else if(mode==="ban"){
+      hint.textContent = "Ban Seat mode: click a seat, or drag a box across several, to toggle them banned (✕) — for broken, reserved, or restricted-view seats. Banned seats can't be assigned.";
+    } else {
+      hint.textContent = "Teacher Seat mode: click a seat, or drag a box across several, to toggle them into teacher seats (red T) — or back to normal student seats. Toggling clears any class assignment on that seat.";
+    }
+  }
+
+  function renderStats(){
+    let total=0, banned=0, assigned=0;
+    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
+      if(seat.role==="teacher") return;
+      total++;
+      if(seat.status==="banned") banned++;
+      else if(seat.groupId) assigned++;
+    })));
+    statsEl.textContent = `${total} seats · ${assigned} assigned · ${banned} banned · ${total-assigned-banned} open`;
+  }
+
+  // ---------- Toolbar ----------
+  document.querySelectorAll(".modebar button").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      document.querySelectorAll(".modebar button").forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      mode = btn.dataset.mode;
+      closeAssignPopup();
+      updateLegendHint();
+      showTip(mode==="assign" ? "Assign mode — select seats, then choose a class in the popup"
+        : mode==="ban" ? "Ban Seat mode — click or drag to toggle seats banned"
+        : "Teacher Seat mode — click or drag to toggle seats as teacher seats");
+    });
+  });
+
+  // ---------- Zoom ----------
+  let zoom = 1;
+  const venueEl = document.getElementById("venue");
+  const zoomLabelEl = document.getElementById("zoomLabel");
+  function applyZoom(){
+    zoom = Math.min(2, Math.max(0.5, zoom));
+    venueEl.style.zoom = zoom;
+    zoomLabelEl.textContent = Math.round(zoom*100)+"%";
+  }
+  document.getElementById("zoomIn").addEventListener("click", ()=>{ zoom += 0.1; applyZoom(); });
+  document.getElementById("zoomOut").addEventListener("click", ()=>{ zoom -= 0.1; applyZoom(); });
+  zoomLabelEl.addEventListener("click", ()=>{ zoom = 1; applyZoom(); });
+
+  document.getElementById("addGroupBtn").addEventListener("click", ()=>{
+    const name = prompt("Class name (e.g. Year 13, 10A):", "New Class");
+    if(!name) return;
+    const g = {id: "grp-" + Math.random().toString(36).slice(2,8), name, color: suggestColor(), targetCount:0};
+    state.groups.push(g);
+    saveState(); renderGroups();
+  });
+
+  document.getElementById("printBtn").addEventListener("click", ()=>{
+    // Scale the chart to fit a landscape page width before printing so the
+    // saved PDF isn't clipped, regardless of how wide the current layout is.
+    const targetWidth = 1050; // ~printable width of landscape Letter/A4 at 96dpi
+    const scale = Math.min(1, targetWidth / venueEl.scrollWidth);
+    document.documentElement.style.setProperty("--print-scale", scale);
+    window.print();
+  });
+  window.addEventListener("afterprint", ()=>{
+    document.documentElement.style.removeProperty("--print-scale");
+  });
+
+  document.getElementById("exportPngBtn").addEventListener("click", exportPNG);
+
+  // Paints the chart straight onto a <canvas> using the LIVE DOM's own positions
+  // and colors (read via getBoundingClientRect/getComputedStyle), rather than
+  // rasterizing an <img> of serialized HTML — the latter (SVG+foreignObject)
+  // permanently taints the canvas in every browser tested, blocking export.
+  // Painting primitives directly never taints it, and since it reads the real
+  // rendered DOM it automatically matches whatever's on screen right now
+  // (same colors, same layout, current zoom).
+  function loadImageSafe(url){
+    return new Promise(resolve=>{
+      if(!url){ resolve(null); return; }
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // required or a successful load still taints the canvas
+      img.onload = ()=> resolve(img);
+      img.onerror = ()=> resolve(null); // most likely a non-CORS remote host — skip it, don't fail the whole export
+      img.src = url;
+    });
+  }
+
+  async function exportPNG(){
+    const vRect = venueEl.getBoundingClientRect();
+    const W = venueEl.scrollWidth, H = venueEl.scrollHeight;
+    const scale = 2; // crisp 2x export
+    const canvas = document.createElement("canvas");
+    canvas.width = W*scale; canvas.height = H*scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#f4f5f7";
+    ctx.fillRect(0, 0, W, H);
+
+    function rel(el){
+      const r = el.getBoundingClientRect();
+      return {x:r.left-vRect.left, y:r.top-vRect.top, w:r.width, h:r.height};
+    }
+
+    // Calibration reference image, if one's loaded — drawn first, under
+    // everything else, at #canvas's own position/size. Skipped silently (via
+    // loadImageSafe's onerror) if the host doesn't allow CORS, since drawing
+    // a tainted cross-origin image would block the export entirely — an
+    // uploaded file (data: URL) always works since it's never cross-origin.
+    const bgMatch = /url\("?(.*?)"?\)/.exec(canvasEl.style.backgroundImage || "");
+    const bgImg = await loadImageSafe(bgMatch ? bgMatch[1] : null);
+    if(bgImg){
+      const cb = rel(canvasEl);
+      ctx.drawImage(bgImg, cb.x, cb.y, cb.w, cb.h);
+    }
+    function roundRect(x,y,w,h,rad){
+      ctx.beginPath();
+      ctx.moveTo(x+rad,y);
+      ctx.arcTo(x+w,y,x+w,y+h,rad);
+      ctx.arcTo(x+w,y+h,x,y+h,rad);
+      ctx.arcTo(x,y+h,x,y,rad);
+      ctx.arcTo(x,y,x+w,y,rad);
+      ctx.closePath();
+    }
+    const FONT = "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
+
+    venueEl.querySelectorAll(".balcony").forEach(el=>{
+      const b = rel(el);
+      ctx.strokeStyle = "#1f2430"; ctx.lineWidth = 2;
+      roundRect(b.x, b.y, b.w, b.h, 8); ctx.stroke();
+    });
+    venueEl.querySelectorAll(".balcony-title").forEach(el=>{
+      const b = rel(el);
+      ctx.fillStyle = "#68707d"; ctx.font = `800 10px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(el.textContent, b.x+b.w/2, b.y+b.h/2);
+    });
+    venueEl.querySelectorAll(".stage").forEach(el=>{
+      const b = rel(el);
+      ctx.fillStyle = "#1f2430";
+      ctx.beginPath();
+      ctx.moveTo(b.x+b.w*0.06, b.y);
+      ctx.lineTo(b.x+b.w*0.94, b.y);
+      ctx.lineTo(b.x+b.w, b.y+b.h);
+      ctx.lineTo(b.x, b.y+b.h);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = `800 14px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText("STAGE", b.x+b.w/2, b.y+b.h/2);
+    });
+    venueEl.querySelectorAll(".exit-row .line").forEach(el=>{
+      const b = rel(el);
+      ctx.fillStyle = "#1f2430";
+      ctx.fillRect(b.x, b.y+b.h/2-1.5, b.w, 3);
+    });
+    venueEl.querySelectorAll(".exit-row .arrow").forEach(el=>{
+      const b = rel(el);
+      ctx.fillStyle = "#e0453c";
+      roundRect(b.x, b.y, b.w, b.h, 4); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = `800 10px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(el.textContent, b.x+b.w/2, b.y+b.h/2);
+    });
+    venueEl.querySelectorAll(".row-label").forEach(el=>{
+      if(!el.textContent) return;
+      const b = rel(el);
+      ctx.fillStyle = "#68707d"; ctx.font = `700 11px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(el.textContent, b.x+b.w/2, b.y+b.h/2);
+    });
+    // Class-highlight polygons, drawn under the seats (same layering as the
+    // live page: highlight fill -> seats on top -> highlight labels on top
+    // of that).
+    venueEl.querySelectorAll(".class-highlight-svg").forEach(svgEl=>{
+      const b = rel(svgEl);
+      const poly = svgEl.querySelector("polygon");
+      const pts = poly.getAttribute("points").trim().split(" ").map(p => p.split(",").map(Number));
+      ctx.beginPath();
+      pts.forEach(([x,y], i) => { if(i===0) ctx.moveTo(b.x+x, b.y+y); else ctx.lineTo(b.x+x, b.y+y); });
+      ctx.closePath();
+      ctx.fillStyle = poly.getAttribute("fill");
+      ctx.fill();
+      ctx.lineJoin = "miter";
+      ctx.lineWidth = parseFloat(poly.getAttribute("stroke-width")) || 2.5;
+      ctx.strokeStyle = poly.getAttribute("stroke");
+      ctx.stroke();
+    });
+    venueEl.querySelectorAll(".seat").forEach(el=>{
+      const b = rel(el);
+      if(!b.w || !b.h) return;
+      const cx = b.x+b.w/2, cy = b.y+b.h/2, radius = b.w/2;
+      let bg;
+      if(el.classList.contains("teacher")) bg = "#c0392b";
+      else if(el.classList.contains("assigned")) bg = el.style.background || getComputedStyle(el).backgroundColor;
+      else if(el.classList.contains("banned")) bg = "#f3c9c6";
+      else bg = getComputedStyle(el).backgroundColor;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI*2);
+      ctx.fillStyle = bg;
+      ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = "rgba(0,0,0,.12)"; ctx.stroke();
+
+      if(el.classList.contains("banned")){
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI*2);
+        ctx.clip();
+        ctx.strokeStyle = "#e0453c"; ctx.lineWidth = 1;
+        for(let d=-radius; d<radius*2; d+=4){
+          ctx.beginPath();
+          ctx.moveTo(b.x+d, b.y+b.h);
+          ctx.lineTo(b.x+d+b.h, b.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      const label = el.textContent;
+      if(label){
+        ctx.fillStyle = el.classList.contains("teacher") || el.classList.contains("assigned") ? "#fff"
+          : el.classList.contains("banned") ? "#e0453c" : "#4b5262";
+        ctx.font = `700 9px ${FONT}`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(label, cx, cy);
+      }
+    });
+    // Big bold class-name labels, drawn last so they sit on top of the seats.
+    venueEl.querySelectorAll(".class-highlight-label").forEach(el=>{
+      const b = rel(el);
+      const cx = b.x+b.w/2, cy = b.y+b.h/2;
+      ctx.font = `800 26px ${FONT}`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.lineWidth = 5; ctx.strokeStyle = "#fff";
+      ctx.strokeText(el.textContent, cx, cy);
+      ctx.fillStyle = "#0b0d11";
+      ctx.fillText(el.textContent, cx, cy);
+    });
+
+    canvas.toBlob(blob=>{
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "vsa-seating-plan.png";
+      document.body.appendChild(a); a.click(); a.remove();
+    });
+  }
+
+  document.getElementById("exportBtn").addEventListener("click", ()=>{
+    const seatAssignments = {};
+    allSeatSections().forEach(sec=>{
+      sec.rows.forEach(r=>r.seats.forEach(seat=>{
+        if(seat.role==="teacher") return;
+        if(seat.status!=="open" || seat.groupId || seat.occupant){
+          seatAssignments[seat.id] = {status:seat.status, groupId:seat.groupId, occupant:seat.occupant};
+        }
+      }));
+    });
+    const blob = new Blob([JSON.stringify({groups: state.groups, seatAssignments}, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "vsa-seating-plan.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById("importBtn").addEventListener("click", ()=> document.getElementById("fileInput").click());
+  document.getElementById("fileInput").addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const data = JSON.parse(reader.result);
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+        state = loadState();
+        render();
+        showTip("Plan imported");
+      }catch(err){ alert("Could not read that file as a seating plan JSON."); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
+  document.getElementById("clearBtn").addEventListener("click", ()=>{
+    if(!confirm("Clear all seat assignments and bans? Layout stays intact.")) return;
+    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{ if(seat.role==="teacher") return; seat.groupId=null; seat.occupant=""; seat.status="open"; })));
+    saveState(); render();
+  });
+
+  // ---------- Color dialog ----------
+  const colorDlg = document.getElementById("colorDlg");
+  const colorPicker = document.getElementById("colorPicker");
+  function openColorDlg(groupId, current){
+    colorTarget = groupId;
+    colorPicker.value = current;
+    colorDlg.showModal();
+  }
+  document.getElementById("colorCancel").addEventListener("click", ()=> colorDlg.close());
+  document.getElementById("colorOk").addEventListener("click", ()=>{
+    if(colorTarget){
+      const g = groupById(colorTarget);
+      if(g) g.color = colorPicker.value;
+      saveState(); render();
+    }
+    colorDlg.close();
+  });
+
+  // ---------- Calibration mode ----------
+  // Lets you drag seats directly over a reference photo of the real venue to
+  // fine-tune their x/y, instead of guessing coordinates from a description.
+  // Dragging an interior seat just moves that one seat. Dragging the FIRST or
+  // LAST seat of a row (its natural start/end anchor) immediately re-aligns
+  // every seat between them along a straight line — so calibrating a whole
+  // row only takes two drags, not one per seat.
+  const calibrateBtn = document.getElementById("calibrateBtn");
+  const calibBar = document.getElementById("calibBar");
+  const modebarEl = document.querySelector(".modebar");
+  const calibImageUrlInput = document.getElementById("calibImageUrl");
+  const calibUndoBtn = document.getElementById("calibUndoBtn");
+  const calibRedoBtn = document.getElementById("calibRedoBtn");
+
+  function findRow(sectionGroupId, rowLabel){
+    const sec = Object.values(state.sections).find(s=>s.id===sectionGroupId);
+    if(!sec) return null;
+    return sec.rows.find(r=>r.label===rowLabel) || null;
+  }
+
+  function autoAlignRow(seats){
+    const n = seats.length;
+    if(n<3) return; // nothing "between" to align
+    const first = seats[0], last = seats[n-1];
+    for(let i=1;i<n-1;i++){
+      const t = i/(n-1);
+      seats[i].x = first.x + t*(last.x-first.x);
+      seats[i].y = first.y + t*(last.y-first.y);
+    }
+  }
+
+  calibrateBtn.addEventListener("click", ()=>{
+    calibrating = !calibrating;
+    calibrateBtn.classList.toggle("active", calibrating);
+    calibBar.classList.toggle("show", calibrating);
+    canvasEl.classList.toggle("calibrating", calibrating);
+    modebarEl.classList.toggle("calib-disabled", calibrating);
+    if(!calibrating){ calibSelectedSeats.clear(); updateCalibSelectionUI(); render(); }
+    showTip(calibrating
+      ? "Calibration mode — drag seats onto the reference image. Drag a row's first/last seat to auto-align the whole row."
+      : "Calibration mode off");
+  });
+
+  // ---- Reference images: a named, deletable list, not just one background ----
+  let calibImages = [];       // [{id, name, url}]
+  let activeCalibImageId = null;
+
+  function loadCalibImages(){
+    try{
+      const raw = localStorage.getItem(CALIB_IMG_KEY);
+      if(!raw) return;
+      const data = JSON.parse(raw);
+      calibImages = Array.isArray(data.images) ? data.images : [];
+      activeCalibImageId = data.activeId || null;
+    }catch(e){}
+  }
+  function saveCalibImages(){
+    localStorage.setItem(CALIB_IMG_KEY, JSON.stringify({images: calibImages, activeId: activeCalibImageId}));
+  }
+  function applyActiveImage(){
+    const img = calibImages.find(i=>i.id===activeCalibImageId);
+    canvasEl.style.backgroundImage = img ? `url("${img.url}")` : "none";
+    canvasEl.style.backgroundSize = "100% 100%";
+  }
+  function renderCalibImageList(){
+    const el = document.getElementById("calibImageList");
+    el.innerHTML = "";
+    calibImages.forEach(img=>{
+      const chip = document.createElement("span");
+      chip.className = "calib-img-chip" + (img.id===activeCalibImageId ? " active" : "");
+      chip.textContent = img.name;
+      chip.title = "Use this map";
+      chip.addEventListener("click", ()=>{
+        activeCalibImageId = img.id;
+        applyActiveImage(); saveCalibImages(); renderCalibImageList();
+      });
+      const del = document.createElement("button");
+      del.className = "calib-img-del";
+      del.textContent = "✕";
+      del.title = `Remove "${img.name}"`;
+      del.addEventListener("click", (e)=>{
+        e.stopPropagation();
+        if(!confirm(`Remove map "${img.name}"?`)) return;
+        calibImages = calibImages.filter(i=>i.id!==img.id);
+        if(activeCalibImageId===img.id) activeCalibImageId = calibImages.length ? calibImages[0].id : null;
+        applyActiveImage(); saveCalibImages(); renderCalibImageList();
+      });
+      chip.appendChild(del);
+      el.appendChild(chip);
+    });
+  }
+  function addCalibImage(name, url){
+    const id = "img-"+Math.random().toString(36).slice(2,8);
+    calibImages.push({id, name: name || "Map", url});
+    activeCalibImageId = id;
+    applyActiveImage(); saveCalibImages(); renderCalibImageList();
+  }
+  function nameFromUrl(url){
+    try{
+      const clean = url.split("?")[0].split("#")[0];
+      return decodeURIComponent(clean.split("/").pop()) || "Map";
+    }catch(e){ return "Map"; }
+  }
+
+  loadCalibImages();
+  applyActiveImage();
+  renderCalibImageList();
+
+  document.getElementById("calibLoadUrlBtn").addEventListener("click", ()=>{
+    const url = calibImageUrlInput.value.trim();
+    if(!url) return;
+    addCalibImage(nameFromUrl(url), url);
+    calibImageUrlInput.value = "";
+  });
+  document.getElementById("calibUploadBtn").addEventListener("click", ()=>{
+    document.getElementById("calibImageFile").click();
+  });
+  document.getElementById("calibImageFile").addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=> addCalibImage(file.name.replace(/\.[^.]+$/,""), reader.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  });
+
+  // ---- Undo/redo for calibration drags (mis-click recovery) ----
+  // Each entry is the FULL set of seats one drag action changed (a lone seat,
+  // or a whole row when a first/last seat triggered auto-align), so one
+  // undo always cleanly reverts one user action, never half of it.
+  let undoStack = [], redoStack = [];
+  function pushUndo(entries){
+    if(!entries.length) return;
+    undoStack.push(entries);
+    if(undoStack.length>50) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+  function updateUndoRedoButtons(){
+    calibUndoBtn.disabled = undoStack.length===0;
+    calibRedoBtn.disabled = redoStack.length===0;
+  }
+  calibUndoBtn.addEventListener("click", ()=>{
+    const entries = undoStack.pop();
+    if(!entries) return;
+    entries.forEach(en=>{ en.seat.x = en.before.x; en.seat.y = en.before.y; });
+    redoStack.push(entries);
+    saveState(); render(); updateUndoRedoButtons();
+    showTip("Undid last drag");
+  });
+  calibRedoBtn.addEventListener("click", ()=>{
+    const entries = redoStack.pop();
+    if(!entries) return;
+    entries.forEach(en=>{ en.seat.x = en.after.x; en.seat.y = en.after.y; });
+    undoStack.push(entries);
+    saveState(); render(); updateUndoRedoButtons();
+    showTip("Redid drag");
+  });
+  updateUndoRedoButtons();
+
+  document.getElementById("calibResetBtn").addEventListener("click", ()=>{
+    if(!confirm("Reset every seat back to its computed default position? This clears all calibration drags and can't be undone.")) return;
+    Object.values(state.sections).forEach(sec=>{
+      sec.rows.forEach(r=>r.seats.forEach(seat=>{
+        const def = DEFAULT_XY.get(seat.id);
+        if(def){ seat.x = def.x; seat.y = def.y; }
+      }));
+    });
+    undoStack = []; redoStack = [];
+    updateUndoRedoButtons();
+    saveState(); render();
+    showTip("All seats reset to their default positions");
+  });
+
+  // ---- Add / Remove Seats (structural changes, not just repositioning) ----
+  document.getElementById("calibAddBtn").addEventListener("click", ()=>{
+    if(calibSelectedSeats.size===0){
+      alert("Shift+click one seat first — new seats extend that seat's row, continuing its spacing/direction.");
+      return;
+    }
+    const count = Math.max(1, Math.min(50, parseInt(document.getElementById("calibAddCount").value,10) || 1));
+    const refId = [...calibSelectedSeats][0];
+    const ref = seatIndex.get(refId);
+    if(!ref) return;
+    const sec = ref.sec;
+    const row = sec.rows.find(r=>r.seats.includes(ref.seat));
+    if(!row){ return; }
+    const seats = row.seats;
+    const last = seats[seats.length-1];
+    const prev = seats.length>1 ? seats[seats.length-2] : null;
+    const dx = prev ? last.x-prev.x : GLOBAL_PITCH;
+    const dy = prev ? last.y-prev.y : 0;
+    for(let k=1;k<=count;k++){
+      const newSeat = {
+        id: `${sec.id}-${row.label}-new-${Date.now()}-${k}`,
+        row: row.label, seatIndex: 0, num: 0, status: "open", groupId: null, occupant: "", role: "student",
+        sectionGroup: sec.id, x: last.x+dx*k, y: last.y+dy*k
+      };
+      seats.push(newSeat);
+      structuralOps.push({type:"add", sectionId: sec.id, rowLabel: row.label, seat: JSON.parse(JSON.stringify(newSeat))});
+    }
+    seats.forEach((s,i)=>{ s.seatIndex = i; s.num = seats.length-i; });
+    calibSelectedSeats.clear();
+    updateCalibSelectionUI();
+    saveState(); render();
+    showTip(`Added ${count} seat${count>1?"s":""} to row ${row.label}`);
+  });
+
+  document.getElementById("calibRemoveBtn").addEventListener("click", ()=>{
+    const n = calibSelectedSeats.size;
+    if(n===0) return;
+    if(!confirm(`Remove ${n} selected seat${n>1?"s":""}? This can't be undone.`)) return;
+    calibSelectedSeats.forEach(seatId=>{
+      Object.values(state.sections).forEach(sec=>sec.rows.forEach(row=>{
+        const idx = row.seats.findIndex(s=>s.id===seatId);
+        if(idx!==-1){
+          row.seats.splice(idx,1);
+          row.seats.forEach((s,i)=>{ s.seatIndex = i; s.num = row.seats.length-i; });
+        }
+      }));
+      structuralOps.push({type:"remove", seatId});
+    });
+    calibSelectedSeats.clear();
+    updateCalibSelectionUI();
+    saveState(); render();
+    showTip(`Removed ${n} seat${n>1?"s":""}`);
+  });
+
+  // Seat dragging (only active while calibrating; stopPropagation keeps the
+  // normal marquee/assign pointerdown handler on #canvasWrap from also firing).
+  // Shift+click instead toggles the seat into a selection (for Add/Remove
+  // Seats) rather than starting a drag.
+  let calibDrag = null;
+  let calibSelectedSeats = new Set();
+
+  function updateCalibSelectionUI(){
+    document.getElementById("calibSelCount").textContent = calibSelectedSeats.size;
+    document.getElementById("calibRemoveBtn").disabled = calibSelectedSeats.size===0;
+  }
+
+  canvasEl.addEventListener("pointerdown", (e)=>{
+    if(!calibrating) return;
+    const seatEl = e.target.closest(".seat.abs[data-seat-id]"); // balcony seats are grid-laid, not draggable
+    if(!seatEl) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const entry = seatIndex.get(seatEl.dataset.seatId);
+    if(!entry) return;
+    if(e.shiftKey){
+      if(calibSelectedSeats.has(entry.seat.id)) calibSelectedSeats.delete(entry.seat.id);
+      else calibSelectedSeats.add(entry.seat.id);
+      seatEl.classList.toggle("calib-selected");
+      updateCalibSelectionUI();
+      return;
+    }
+    calibDrag = {
+      seatEl, seat: entry.seat,
+      startX: e.clientX, startY: e.clientY,
+      startLeft: parseFloat(seatEl.style.left)||0, startTop: parseFloat(seatEl.style.top)||0
+    };
+    window.addEventListener("pointermove", onCalibMove);
+    window.addEventListener("pointerup", onCalibUp);
+  });
+
+  function onCalibMove(e){
+    if(!calibDrag) return;
+    const dx = e.clientX-calibDrag.startX, dy = e.clientY-calibDrag.startY;
+    calibDrag.seatEl.style.left = (calibDrag.startLeft+dx)+"px";
+    calibDrag.seatEl.style.top = (calibDrag.startTop+dy)+"px";
+  }
+
+  function onCalibUp(e){
+    if(!calibDrag) return;
+    window.removeEventListener("pointermove", onCalibMove);
+    window.removeEventListener("pointerup", onCalibUp);
+    const dx = e.clientX-calibDrag.startX, dy = e.clientY-calibDrag.startY;
+    const newLeftPx = calibDrag.startLeft+dx, newTopPx = calibDrag.startTop+dy;
+    const seat = calibDrag.seat;
+    const before = {x:seat.x, y:seat.y};
+    seat.x = (newLeftPx/CANVAS_W)*1000;
+    seat.y = (newTopPx/CANVAS_H)*600;
+    const changed = [{seat, before, after:{x:seat.x, y:seat.y}}];
+
+    // If this was a row's first/last seat, re-align everything between the
+    // two ends immediately — "real quick" calibration for the whole row —
+    // and record each moved seat so undo can restore the whole row at once.
+    if(!seat.balcony){
+      const rowObj = findRow(seat.sectionGroup, seat.row);
+      if(rowObj){
+        const n = rowObj.seats.length;
+        if(seat.seatIndex===0 || seat.seatIndex===n-1){
+          const preAlign = rowObj.seats.map(s=>({x:s.x, y:s.y}));
+          autoAlignRow(rowObj.seats);
+          rowObj.seats.forEach((s,i)=>{
+            if(s===seat) return;
+            if(s.x!==preAlign[i].x || s.y!==preAlign[i].y){
+              changed.push({seat:s, before:preAlign[i], after:{x:s.x, y:s.y}});
+            }
+          });
+        }
+      }
+    }
+
+    pushUndo(changed);
+    calibDrag = null;
+    saveState();
+    render();
+  }
+
+  document.getElementById("exportCoordsBtn").addEventListener("click", ()=>{
+    const seats = [];
+    Object.values(state.sections).forEach(sec=>{
+      sec.rows.forEach(r=>r.seats.forEach(seat=>{
+        seats.push({
+          id: seat.id, row: seat.row, seatIndex: seat.seatIndex, seatNumber: seat.num,
+          sectionGroup: seat.sectionGroup || sec.id, x: Math.round(seat.x*100)/100, y: Math.round(seat.y*100)/100
+        });
+      }));
+    });
+    const blob = new Blob([JSON.stringify({canvas:{w:1000,h:600}, seats}, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "vsa-seat-coordinates.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showTip("Coordinates exported");
+  });
+
+  // ---------- AI Generate ----------
+  // Turns a plain-English instruction into a small JSON list of seat
+  // operations via Gemini, then applies them to the real data model.
+  // SECURITY: no API key lives in this file at all. The browser calls our
+  // OWN /api/generate endpoint (a Cloudflare Pages Function — see
+  // functions/api/generate.js), which holds the real Gemini key server-side
+  // as a Pages secret and proxies the request. That function also owns the
+  // retry/model-fallback logic (busy-model handling), so this client just
+  // makes one call and waits.
+  function buildVenueSchemaText(){
+    const lines = [];
+    SEAT_SECTIONS.forEach(key=>{
+      const sec = state.sections[key];
+      const rowsDesc = sec.rows.map(r=>`${r.label}(seats numbered 1-${r.seats.length})`).join(", ");
+      lines.push(`- ${sec.id}: rows ${rowsDesc}`);
+    });
+    lines.push(`- BalL: one unlabeled row, seats numbered 1-${state.sections.balL.rows[0].seats.length}`);
+    lines.push(`- BalR: one unlabeled row, seats numbered 1-${state.sections.balR.rows[0].seats.length}`);
+    const classNames = state.groups.map(g=>g.name).join(", ") || "(none created yet)";
+    return {schema: lines.join("\n"), classNames};
+  }
+
+  async function callGemini(userPrompt){
+    const {schema, classNames} = buildVenueSchemaText();
+    const instructions = `You are a seating-plan assistant for a theater seating chart. The venue's sections (each with rows and seat-number ranges) are:
+${schema}
+
+Existing classes already defined: ${classNames}
+
+Given the user's instruction below, output ONLY a raw JSON array (no markdown fences, no prose) of operations to perform on the chart. Each operation has this shape:
+{"action":"assign"|"ban"|"unban"|"teacher"|"clear","sectionGroup":"<one of the section ids above>","row":"<row label>","numFrom":<int>,"numTo":<int>,"class":"<class name, only for assign>"}
+numFrom/numTo are the visible seat numbers in that row (1-based, inclusive, order doesn't matter). "assign" needs "class" (create it if it's not in the existing list). If the user names a whole section without a row, emit one operation per row in that section covering its full seat-number range. If the user says "all"/"every seat" in a row, use its full range.
+
+User instruction: "${userPrompt}"`;
+
+    document.getElementById("aiStatus").textContent = "Thinking…";
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ prompt: instructions })
+    });
+    if(!res.ok){
+      const errText = await res.text();
+      throw new Error(`Server error ${res.status}: ${errText.slice(0,300)}`);
+    }
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.map(p=>p.text).join("") || "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if(!jsonMatch) throw new Error("Model didn't return a JSON array — raw reply: " + text.slice(0,300));
+    return JSON.parse(jsonMatch[0]);
+  }
+
+  function applyGeneratedOps(ops){
+    let applied = 0;
+    ops.forEach(op=>{
+      const sec = Object.values(state.sections).find(s=>s.id===op.sectionGroup);
+      const row = sec && sec.rows.find(r=>r.label===op.row);
+      if(!row) return;
+      const lo = Math.min(op.numFrom, op.numTo), hi = Math.max(op.numFrom, op.numTo);
+      const targets = row.seats.filter(s=>s.role!=="teacher" && s.num>=lo && s.num<=hi);
+      if(op.action==="assign" && op.class){
+        let g = state.groups.find(x=>x.name===op.class);
+        if(!g){ g = {id:"grp-"+Math.random().toString(36).slice(2,8), name:op.class, color:suggestColor(), targetCount:0}; state.groups.push(g); }
+        targets.forEach(s=>{ if(s.status!=="banned"){ s.groupId=g.id; applied++; } });
+      } else if(op.action==="ban"){
+        targets.forEach(s=>{ s.status="banned"; s.groupId=null; s.occupant=""; applied++; });
+      } else if(op.action==="unban"){
+        targets.forEach(s=>{ if(s.status==="banned"){ s.status="open"; applied++; } });
+      } else if(op.action==="teacher"){
+        targets.forEach(s=>{ s.role="teacher"; s.status="open"; s.groupId=null; s.occupant=""; applied++; });
+      } else if(op.action==="clear"){
+        targets.forEach(s=>{ s.groupId=null; s.occupant=""; applied++; });
+      }
+    });
+    return applied;
+  }
+
+  const aiToggleBtn = document.getElementById("aiToggleBtn");
+  const aiBar = document.getElementById("aiBar");
+  aiToggleBtn.addEventListener("click", ()=>{
+    const showing = aiBar.classList.toggle("show");
+    aiToggleBtn.classList.toggle("active", showing);
+  });
+
+  document.getElementById("aiGenerateBtn").addEventListener("click", async ()=>{
+    const promptEl = document.getElementById("aiPromptInput");
+    const statusEl = document.getElementById("aiStatus");
+    const btn = document.getElementById("aiGenerateBtn");
+    const prompt = promptEl.value.trim();
+    if(!prompt) return;
+    btn.disabled = true;
+    statusEl.textContent = "Thinking…";
+    try{
+      const ops = await callGemini(prompt);
+      const count = applyGeneratedOps(ops);
+      saveState(); render();
+      statusEl.textContent = `Done — applied ${count} seat change(s) from ${ops.length} operation(s).`;
+      showTip("AI generation applied");
+    }catch(err){
+      statusEl.textContent = "Error: " + err.message;
+    }
+    btn.disabled = false;
+  });
+  document.getElementById("aiPromptInput").addEventListener("keydown", (e)=>{
+    if(e.key==="Enter") document.getElementById("aiGenerateBtn").click();
+  });
+
+  render();
+  showTip("Welcome — pick a class, then click or drag across seats to assign it");
+})();
+</script>
+</body>
+</html>

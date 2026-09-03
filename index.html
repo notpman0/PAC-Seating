@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>PAC Seating</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%8E%AD</text></svg>">
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
   :root{
     --bg:#f4f5f7; --panel:#ffffff; --border:#d9dce1; --text:#1f2430; --muted:#68707d;
@@ -16,7 +16,8 @@
 
   /* ---------- Top bar ---------- */
   #topbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap;box-shadow:var(--shadow);z-index:5;}
-  #topbar h1{font-size:15px;margin:0 14px 0 0;font-weight:700;white-space:nowrap;}
+  #topbar h1{font-size:15px;margin:0 14px 0 0;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:7px;}
+  #topbar h1 img{width:20px;height:20px;border-radius:5px;}
   .modebar{display:flex;background:var(--bg);border-radius:8px;padding:3px;gap:2px;}
   .modebar button{border:none;background:transparent;padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;}
   .modebar button.active{background:var(--accent);color:#fff;}
@@ -181,7 +182,7 @@
 <body>
 <div id="app">
   <div id="topbar">
-    <h1>🎭 PAC Seating</h1>
+    <h1><img src="favicon.png" alt=""> PAC Seating</h1>
     <div class="modebar">
       <button data-mode="assign" class="active">Assign Class</button>
       <button data-mode="ban">Ban Seat</button>

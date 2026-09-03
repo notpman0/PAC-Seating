@@ -1286,46 +1286,84 @@
       ctx.closePath();
     }
     const FONT = "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif";
+    // Reads the ELEMENT'S OWN live font/color instead of a hardcoded guess —
+    // this is what was going stale: the CSS kept changing (bigger row labels,
+    // bolder stage text, etc.) but these hardcoded values never followed, so
+    // the export silently drifted out of sync with what's actually on screen.
+    function textStyle(el){
+      const cs = getComputedStyle(el);
+      return {font: `${cs.fontWeight} ${cs.fontSize} ${FONT}`, color: cs.color};
+    }
+    function drawCenteredText(el, cx, cy, colorOverride){
+      const s = textStyle(el);
+      ctx.font = s.font;
+      ctx.fillStyle = colorOverride || s.color;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(el.textContent, cx, cy);
+    }
 
     venueEl.querySelectorAll(".balcony").forEach(el=>{
       const b = rel(el);
-      ctx.strokeStyle = "#1f2430"; ctx.lineWidth = 2;
+      const cs = getComputedStyle(el);
+      ctx.strokeStyle = cs.borderTopColor; ctx.lineWidth = parseFloat(cs.borderTopWidth) || 3;
       roundRect(b.x, b.y, b.w, b.h, 8); ctx.stroke();
     });
     venueEl.querySelectorAll(".balcony-title").forEach(el=>{
       const b = rel(el);
-      ctx.fillStyle = "#68707d"; ctx.font = `800 10px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText(el.textContent, b.x+b.w/2, b.y+b.h/2);
+      drawCenteredText(el, b.x+b.w/2, b.y+b.h/2);
     });
     venueEl.querySelectorAll(".stage").forEach(el=>{
       const b = rel(el);
-      ctx.fillStyle = "#1f2430";
+      const cs = getComputedStyle(el);
+      ctx.fillStyle = cs.backgroundColor;
       ctx.beginPath();
       ctx.moveTo(b.x+b.w*0.06, b.y);
       ctx.lineTo(b.x+b.w*0.94, b.y);
       ctx.lineTo(b.x+b.w, b.y+b.h);
       ctx.lineTo(b.x, b.y+b.h);
       ctx.closePath(); ctx.fill();
-      ctx.fillStyle = "#fff"; ctx.font = `800 14px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText("STAGE", b.x+b.w/2, b.y+b.h/2);
+      drawCenteredText(el, b.x+b.w/2, b.y+b.h/2, cs.color);
     });
     venueEl.querySelectorAll(".exit-row .line").forEach(el=>{
       const b = rel(el);
-      ctx.fillStyle = "#1f2430";
-      ctx.fillRect(b.x, b.y+b.h/2-1.5, b.w, 3);
+      ctx.fillStyle = getComputedStyle(el).backgroundColor;
+      ctx.fillRect(b.x, b.y, b.w, b.h);
     });
     venueEl.querySelectorAll(".exit-row .arrow").forEach(el=>{
       const b = rel(el);
-      ctx.fillStyle = "#e0453c";
+      const cs = getComputedStyle(el);
+      ctx.fillStyle = cs.backgroundColor;
       roundRect(b.x, b.y, b.w, b.h, 4); ctx.fill();
-      ctx.fillStyle = "#fff"; ctx.font = `800 10px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText(el.textContent, b.x+b.w/2, b.y+b.h/2);
+      drawCenteredText(el, b.x+b.w/2, b.y+b.h/2, cs.color);
     });
     venueEl.querySelectorAll(".row-label").forEach(el=>{
       if(!el.textContent) return;
       const b = rel(el);
-      ctx.fillStyle = "#68707d"; ctx.font = `700 11px ${FONT}`; ctx.textAlign="center"; ctx.textBaseline="middle";
-      ctx.fillText(el.textContent, b.x+b.w/2, b.y+b.h/2);
+      drawCenteredText(el, b.x+b.w/2, b.y+b.h/2);
+    });
+    // The "Aisle" divider (dashed line either side of the text) — the dashes
+    // themselves are CSS ::before/::after pseudo-elements with no real DOM
+    // node to measure, so they're approximated here rather than read directly.
+    venueEl.querySelectorAll(".aisle-gap").forEach(el=>{
+      const b = rel(el);
+      const cs = getComputedStyle(el);
+      const cy = b.y + b.h/2;
+      const label = el.textContent.toUpperCase();
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${FONT}`;
+      const textWidth = ctx.measureText(label).width;
+      const pad = 40, gap = 10;
+      ctx.save();
+      ctx.strokeStyle = "#b7bfcc"; ctx.lineWidth = 2; ctx.setLineDash([5,5]);
+      ctx.beginPath();
+      ctx.moveTo(b.x+pad, cy); ctx.lineTo(b.x+b.w/2-textWidth/2-gap, cy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(b.x+b.w/2+textWidth/2+gap, cy); ctx.lineTo(b.x+b.w-pad, cy);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = cs.color;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(label, b.x+b.w/2, cy);
     });
     // Class-highlight polygons, drawn under the seats (same layering as the
     // live page: highlight fill -> seats on top -> highlight labels on top

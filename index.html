@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>VSA Seating Planner</title>
+<title>PAC Seating</title>
 <style>
   :root{
     --bg:#f4f5f7; --panel:#ffffff; --border:#d9dce1; --text:#1f2430; --muted:#68707d;
@@ -105,8 +105,10 @@
   .row-label{position:absolute;transform:translate(-50%,-50%);font-size:14px;font-weight:800;color:var(--text);pointer-events:none;}
 
   .class-highlight-svg{position:absolute;pointer-events:none;overflow:visible;}
-  .class-highlight-label{position:absolute;transform:translate(-50%,-50%);font-weight:800;font-size:26px;letter-spacing:.02em;color:#0b0d11;
-    text-shadow:0 0 5px #fff,0 0 5px #fff,0 0 6px #fff,0 0 9px #fff,0 0 9px #fff,0 0 12px #fff;white-space:nowrap;pointer-events:none;}
+  .class-highlight-label{position:absolute;transform:translate(-50%,-50%);font-weight:900;font-size:34px;letter-spacing:.01em;color:#000;
+    -webkit-text-stroke:1.5px #000;paint-order:stroke fill;
+    text-shadow:-3px -3px 0 #fff,3px -3px 0 #fff,-3px 3px 0 #fff,3px 3px 0 #fff,0 0 10px #fff,0 0 16px #fff,0 0 22px #fff;
+    white-space:nowrap;pointer-events:none;z-index:6;}
 
   .seat{width:20px;height:20px;border-radius:50%;background:#eef1f7;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#1f2430;cursor:pointer;border:2px solid #2b3240;box-sizing:border-box;}
   .seat.abs{position:absolute;transform:translate(-50%,-50%);}
@@ -171,7 +173,7 @@
 <body>
 <div id="app">
   <div id="topbar">
-    <h1>🎭 VSA Seating Planner</h1>
+    <h1>🎭 PAC Seating</h1>
     <div class="modebar">
       <button data-mode="assign" class="active">Assign Class</button>
       <button data-mode="ban">Ban Seat</button>
@@ -302,13 +304,10 @@
     LowerLeft:   {x1:100, x2:300, y1:238, y2:488},
     LowerCenter: {x1:360, x2:640, y1:238, y2:488},
     LowerRight:  {x1:700, x2:900, y1:238, y2:488},
-    // Centered under LowerLeft (100-300, center 200) / LowerRight (700-900,
-    // center 800) respectively, so the rear blocks sit directly below their
-    // matching column instead of floating at an arbitrary offset. Seat pitch
-    // is GLOBAL_PITCH everywhere (see placeRows), same as LowerCenter.
-    RearLeft:    {x1:160, x2:240, y1:505, y2:598},
+    // RearLeft/RearRight now reuse LowerLeft/LowerRight's own x-bounds
+    // directly (see buildSections) for exact column alignment, so they don't
+    // need entries here.
     RearCenter:  {x1:360, x2:640, y1:505, y2:598},
-    RearRight:   {x1:760, x2:840, y1:505, y2:598},
   };
   const BAL_BOUNDS = {
     // Width needs to clear two competing constraints: wide enough that 3
@@ -397,9 +396,14 @@
       balR: section("BalR", [ balconyRow(51, BAL_BOUNDS.BalR) ]),
 
       // ----- Rear rows (AB-AE), separated from the lower block by an aisle -----
-      rearLeft:   section("RearLeft",   placeRows(uniformRows(["x1","x2","x3","x4"], 4), b.RearLeft.x1, b.RearLeft.x2, "center")),
+      // RearLeft/RearRight reuse LowerLeft/LowerRight's OWN bounds and flush
+      // edge (not their own separate centered box) — same anchor, same
+      // count (4 seats), same GLOBAL_PITCH as row V above them, so seat #4
+      // lands exactly under row V's #4, #3 under #3, and so on, column for
+      // column, not just roughly centered under the block.
+      rearLeft:   section("RearLeft",   placeRows(uniformRows(["x1","x2","x3","x4"], 4), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
       rearCenter: section("RearCenter", placeRows(uniformRows(["AB","AC","AD","AE"], 16), b.RearCenter.x1, b.RearCenter.x2, "center")),
-      rearRight:  section("RearRight",  placeRows(uniformRows(["y1","y2","y3","y4"], 4), b.RearRight.x1, b.RearRight.x2, "center")),
+      rearRight:  section("RearRight",  placeRows(uniformRows(["y1","y2","y3","y4"], 4), b.LowerRight.x1, b.LowerRight.x2, "start")),
     };
   }
 
@@ -1384,11 +1388,13 @@
     venueEl.querySelectorAll(".class-highlight-label").forEach(el=>{
       const b = rel(el);
       const cx = b.x+b.w/2, cy = b.y+b.h/2;
-      ctx.font = `800 26px ${FONT}`;
+      ctx.font = `900 34px ${FONT}`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.lineWidth = 5; ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 9; ctx.strokeStyle = "#fff"; ctx.lineJoin = "round";
       ctx.strokeText(el.textContent, cx, cy);
-      ctx.fillStyle = "#0b0d11";
+      ctx.lineWidth = 2; ctx.strokeStyle = "#000";
+      ctx.strokeText(el.textContent, cx, cy);
+      ctx.fillStyle = "#000";
       ctx.fillText(el.textContent, cx, cy);
     });
 

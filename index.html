@@ -413,7 +413,13 @@
       // lands exactly under row V's #4, #3 under #3, and so on, column for
       // column, not just roughly centered under the block.
       rearLeft:   section("RearLeft",   placeRows(uniformRows(["x1","x2","x3","x4"], 4), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
-      rearCenter: section("RearCenter", placeRows(uniformRows(["AB","AC","AD","AE"], 16), b.RearCenter.x1, b.RearCenter.x2, "center")),
+      // Staggered/interlocking brick layout: alternating 14/15-seat rows.
+      // No manual half-pitch offset needed — under the "center" anchor
+      // formula, an odd-count row (15) always lands a seat exactly on the
+      // midpoint, while an even-count row (14) always centers with its seats
+      // sitting at the half-pitch marks between that odd row's seats. Same
+      // GLOBAL_PITCH as everywhere else, so the interlock lines up exactly.
+      rearCenter: section("RearCenter", placeRows(explicitRows([["AB",14],["AC",15],["AD",14],["AE",15]]), b.RearCenter.x1, b.RearCenter.x2, "center")),
       rearRight:  section("RearRight",  placeRows(uniformRows(["y1","y2","y3","y4"], 4), b.LowerRight.x1, b.LowerRight.x2, "start")),
     };
   }

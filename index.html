@@ -173,7 +173,8 @@
   .zoombar{display:flex;align-items:center;gap:2px;background:var(--bg);border-radius:8px;padding:3px;}
   .zoombar button{border:none;background:#fff;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:700;color:var(--text);cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.06);}
   .zoombar button:hover{background:var(--accent-soft);}
-  .zoombar .zlabel{width:44px;text-align:center;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;}
+  .zoombar .zlabel{width:44px;text-align:center;font:600 11.5px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--muted);cursor:text;border:none;background:transparent;padding:2px 0;border-radius:4px;}
+  .zoombar .zlabel:focus{outline:2px solid var(--accent);color:var(--text);background:#fff;}
 </style>
 </head>
 <body>
@@ -187,7 +188,7 @@
     </div>
     <div class="zoombar">
       <button id="zoomOut" title="Zoom out">−</button>
-      <span class="zlabel" id="zoomLabel" title="Reset zoom">100%</span>
+      <input class="zlabel" id="zoomLabel" type="text" inputmode="numeric" value="100%" title="Type a zoom percentage (1-250%)">
       <button id="zoomIn" title="Zoom in">+</button>
     </div>
     <button class="btn" id="printBtn">Print / PDF</button>
@@ -1233,20 +1234,35 @@
   // "100%" (the default/reset state) is now deliberately smaller than the
   // map's true 1400x840 pixel size — it renders at the same size the old
   // auto-fit used to land on at a typical window (76% of true size). `zoom`
-  // stays the user-facing 50%-200% value shown in the label; the actual CSS
+  // stays the user-facing 1%-250% value shown in the label; the actual CSS
   // zoom applied is always zoom * BASE_ZOOM_SCALE.
   const BASE_ZOOM_SCALE = 0.76;
+  const ZOOM_MIN = 0.01, ZOOM_MAX = 2.5;
   let zoom = 1;
   const venueEl = document.getElementById("venue");
   const zoomLabelEl = document.getElementById("zoomLabel");
   function applyZoom(){
-    zoom = Math.min(2, Math.max(0.5, zoom));
+    zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
     venueEl.style.zoom = zoom * BASE_ZOOM_SCALE;
-    zoomLabelEl.textContent = Math.round(zoom*100)+"%";
+    zoomLabelEl.value = Math.round(zoom*100)+"%";
   }
   document.getElementById("zoomIn").addEventListener("click", ()=>{ zoom += 0.1; applyZoom(); });
   document.getElementById("zoomOut").addEventListener("click", ()=>{ zoom -= 0.1; applyZoom(); });
-  zoomLabelEl.addEventListener("click", fitZoomToScreen);
+  // Typed zoom: Enter or losing focus commits the value (parsed permissively
+  // — "120", "120%", "  120 %" all work), clamped to 1%-250%. Reverts the
+  // displayed text to the current zoom on empty/garbage input rather than
+  // silently doing nothing, so the field never shows a stale/wrong number.
+  function commitTypedZoom(){
+    const n = parseFloat(zoomLabelEl.value);
+    if(Number.isFinite(n)) { zoom = n/100; applyZoom(); }
+    else applyZoom(); // just re-render the current value, discarding bad input
+  }
+  zoomLabelEl.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter") { commitTypedZoom(); zoomLabelEl.blur(); }
+    else if(e.key === "Escape") { applyZoom(); zoomLabelEl.blur(); }
+  });
+  zoomLabelEl.addEventListener("blur", commitTypedZoom);
+  zoomLabelEl.addEventListener("focus", ()=> zoomLabelEl.select());
 
   // #venue's own real box (#canvas 1400x840 plus its CSS padding) — the
   // actual footprint that needs to fit inside #canvasWrap for the map to be
@@ -1317,6 +1333,14 @@
   }
 
   async function exportPNG(){
+    // Always export the map at its true canonical size — decoupled from
+    // whatever zoom is currently on screen (CSS `zoom` actually changes
+    // layout size in this browser, not just visual scale, so without this
+    // an export taken while zoomed out would come out smaller/blurrier than
+    // one taken at 100%). Restored in `finally` even if drawing throws.
+    const savedZoom = venueEl.style.zoom;
+    venueEl.style.zoom = "1";
+    try{
     const vRect = venueEl.getBoundingClientRect();
     const W = venueEl.scrollWidth, H = venueEl.scrollHeight;
     const scale = 2; // crisp 2x export
@@ -1459,11 +1483,14 @@
       else if(el.classList.contains("banned")) bg = "#f3c9c6";
       else bg = getComputedStyle(el).backgroundColor;
 
+      const seatCs = getComputedStyle(el);
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI*2);
       ctx.fillStyle = bg;
       ctx.fill();
-      ctx.lineWidth = 1; ctx.strokeStyle = "rgba(0,0,0,.12)"; ctx.stroke();
+      ctx.lineWidth = parseFloat(seatCs.borderTopWidth) || 2;
+      ctx.strokeStyle = seatCs.borderTopColor;
+      ctx.stroke();
 
       if(el.classList.contains("banned")){
         ctx.save();
@@ -1484,7 +1511,7 @@
       if(label){
         ctx.fillStyle = el.classList.contains("teacher") || el.classList.contains("assigned") ? "#fff"
           : el.classList.contains("banned") ? "#e0453c" : "#4b5262";
-        ctx.font = `700 9px ${FONT}`;
+        ctx.font = `${seatCs.fontWeight} ${seatCs.fontSize} ${FONT}`;
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
         ctx.fillText(label, cx, cy);
       }
@@ -1509,6 +1536,9 @@
       a.download = "vsa-seating-plan.png";
       document.body.appendChild(a); a.click(); a.remove();
     });
+    } finally {
+      venueEl.style.zoom = savedZoom;
+    }
   }
 
   document.getElementById("exportBtn").addEventListener("click", ()=>{

@@ -421,15 +421,12 @@
       upperRight:  section("UpperRight",  placeRows(explicitRows([["A",2],["B",3],["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
 
       // ----- Main lower block (rows M-V), 3 columns + 2 balconies -----
-      // Stepped wedge per-row counts confirmed against the reference table:
-      // M12,N12,O11,P11,Q10,R10,S8,T8,U7,V5 — seat numbers themselves use the
-      // venue's normal sequential numbering (the reference table's raw values
-      // for those seats were garbled/non-numeric, so only its row counts are
-      // used here, not its literal seat labels).
-      lowerLeft:   section("LowerLeft",   placeRows(explicitRows([["M",12],["N",12],["O",11],["P",11],["Q",10],["R",10],["S",8],["T",8],["U",7],["V",5]]), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
+      // Stepped wedge per-row counts: M12,N12,O10,P10,Q9,R9,S7,T7,U6,V4 —
+      // seat numbers use the venue's normal sequential numbering.
+      lowerLeft:   section("LowerLeft",   placeRows(explicitRows([["M",12],["N",12],["O",10],["P",10],["Q",9],["R",9],["S",7],["T",7],["U",6],["V",4]]), b.LowerLeft.x1, b.LowerLeft.x2, "end")),
       lowerCenter: section("LowerCenter", placeRows(uniformRows(["M","N","O","P","Q","R","S","T","U","V"], 16), b.LowerCenter.x1, b.LowerCenter.x2, "center")),
       // Mirror image of LowerLeft, same as UpperRight mirrors UpperLeft.
-      lowerRight:  section("LowerRight",  placeRows(explicitRows([["M",12],["N",12],["O",11],["P",11],["Q",10],["R",10],["S",8],["T",8],["U",7],["V",5]]), b.LowerRight.x1, b.LowerRight.x2, "start")),
+      lowerRight:  section("LowerRight",  placeRows(explicitRows([["M",12],["N",12],["O",10],["P",10],["Q",9],["R",9],["S",7],["T",7],["U",6],["V",4]]), b.LowerRight.x1, b.LowerRight.x2, "start")),
 
       // 3 columns x 17 rows, matching the reference photo exactly.
       // Both sides identical: 3 columns x 17 rows, 51 seats each.

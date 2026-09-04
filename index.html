@@ -89,12 +89,12 @@
      scrolls normally (flex item, not absolutely positioned) if the map is
      ever bigger than the window. */
   #venue{width:max-content;padding:34px 50px 60px;flex-shrink:0;}
-  /* #canvas is a fixed 1400x840px surface (a 1000x600 logical-unit grid at
+  /* #canvas is a fixed 1400x1015px surface (a 1000x725 logical-unit grid at
      1.4x) — every child (seats, section boxes, labels, stage, exits) is
      positioned with absolute left/top computed from that grid in JS (see
      px()), not flex/grid flow. Existing zoom (CSS `zoom` on #venue) still
      scales the whole thing responsively without needing per-element math. */
-  #canvas{position:relative;width:1400px;height:840px;background:#fff;border-radius:10px;box-shadow:var(--shadow);}
+  #canvas{position:relative;width:1400px;height:1015px;background:#fff;border-radius:10px;box-shadow:var(--shadow);}
 
   .stage{position:absolute;transform:translateX(-50%);background:#1f2430;color:#fff;font-weight:800;letter-spacing:.12em;padding:14px 100px;border-radius:6px;font-size:18px;clip-path:polygon(6% 0,94% 0,100% 100%,0% 100%);}
 
@@ -289,15 +289,24 @@
   // Section id scoping (in section()) keeps every seat.id globally unique, so
   // Assign/Ban/Teacher-toggle/marquee-select — all of which key off seat.id —
   // work completely unchanged; they never see or care how a seat was placed.
-  const CANVAS_W = 1400, CANVAS_H = 840; // px size of #canvas (1000x600 units, x1.4)
-  function px(unit, axis){ return axis==="w" ? (unit/1000)*CANVAS_W : (unit/600)*CANVAS_H; }
+  // Logical grid grew from 1000x600 to 1000x725 units to fit the new A-E
+  // rows in front of F (see ROW_Y) — CANVAS_H scales up with it (725*1.4)
+  // so the px-per-unit ratio (1.4) stays exactly what it was; nothing that
+  // reads px() needed to change, only what "725" means grew.
+  const CANVAS_W = 1400, LOGICAL_H = 725, CANVAS_H = LOGICAL_H*1.4; // px size of #canvas (1000x725 units, x1.4)
+  function px(unit, axis){ return axis==="w" ? (unit/1000)*CANVAS_W : (unit/LOGICAL_H)*CANVAS_H; }
 
+  // A-E were inserted in front of F by extending the existing pitch-25
+  // arithmetic sequence backward (A=60,B=85,...,E=160) — F itself and
+  // everything below it (through AE) shifted down by 125 units (5 rows x
+  // 25 pitch) to make room, so the whole venue is 125 units taller overall.
   const ROW_Y = {
-    F:60, G:85, H:110, I:135, J:160, K:185, L:210,
-    M:250, N:275, O:300, P:325, Q:350, R:375, S:400, T:425, U:450, V:475,
-    AB:515, AC:540, AD:565, AE:590,
-    x1:515, x2:540, x3:565, x4:590,
-    y1:515, y2:540, y3:565, y4:590,
+    A:60, B:85, C:110, D:135, E:160,
+    F:185, G:210, H:235, I:260, J:285, K:310, L:335,
+    M:375, N:400, O:425, P:450, Q:475, R:500, S:525, T:550, U:575, V:600,
+    AB:640, AC:665, AD:690, AE:715,
+    x1:640, x2:665, x3:690, x4:715,
+    y1:640, y2:665, y3:690, y4:715,
   };
 
   const SECTION_BOUNDS = {
@@ -307,22 +316,27 @@
     // own label AND the center block's label in the same gap without them
     // crowding each other. UpperCenter/LowerCenter/RearCenter stay untouched
     // (they're deliberately aligned with each other).
-    UpperLeft:   {x1:100, x2:300, y1:48,  y2:222},
-    UpperCenter: {x1:360, x2:640, y1:48,  y2:222},
-    UpperRight:  {x1:700, x2:900, y1:48,  y2:222},
+    // y2 extended from 222 to 347 to cover the new A-E rows in front of F
+    // (A-L now spans y=48..335, see ROW_Y) — y1 (the stage-side edge) is
+    // unchanged, only the far/L-side edge moved.
+    UpperLeft:   {x1:100, x2:300, y1:48,  y2:347},
+    UpperCenter: {x1:360, x2:640, y1:48,  y2:347},
+    UpperRight:  {x1:700, x2:900, y1:48,  y2:347},
     // LowerLeft/LowerRight: x2/x1 respectively are the fixed flush edge the
     // stepped wedge anchors against (placeRows only reads that one side for
     // "end"/"start" anchors — the other x value here is unused headroom, not
     // a hard clamp). The widest step (13 seats, see buildSections) still fits
     // comfortably inside this box, so row labels (computed from each row's
     // own live seat extents, not this box) never clip against BalL/BalR.
-    LowerLeft:   {x1:100, x2:300, y1:238, y2:488},
-    LowerCenter: {x1:360, x2:640, y1:238, y2:488},
-    LowerRight:  {x1:700, x2:900, y1:238, y2:488},
+    // y1/y2 shifted +125 along with M-V (see ROW_Y).
+    LowerLeft:   {x1:100, x2:300, y1:363, y2:613},
+    LowerCenter: {x1:360, x2:640, y1:363, y2:613},
+    LowerRight:  {x1:700, x2:900, y1:363, y2:613},
     // RearLeft/RearRight now reuse LowerLeft/LowerRight's own x-bounds
     // directly (see buildSections) for exact column alignment, so they don't
     // need entries here.
-    RearCenter:  {x1:360, x2:640, y1:505, y2:598},
+    // y1/y2 shifted +125 along with AB-AE (see ROW_Y).
+    RearCenter:  {x1:360, x2:640, y1:630, y2:723},
   };
   const BAL_BOUNDS = {
     // Width needs to clear two competing constraints: wide enough that 3
@@ -331,8 +345,9 @@
     // narrow enough that the frame's right edge doesn't run into the nearby
     // row-letter label (confirmed overlapping at the old width — measured
     // the label starting ~2.6px before the frame's edge).
-    BalL: {x1:8,   x2:64,  y1:250, y2:475},
-    BalR: {x1:936, x2:992, y1:250, y2:475},
+    // y1/y2 shifted +125 to stay aligned with the lower block (see ROW_Y).
+    BalL: {x1:8,   x2:64,  y1:375, y2:600},
+    BalR: {x1:936, x2:992, y1:375, y2:600},
   };
 
   // opts.numbers overrides the default descending 1..n numbering with an
@@ -391,13 +406,19 @@
   function buildSections(){
     const b = SECTION_BOUNDS;
     return {
-      // ----- Upper block (rows F-L), 3 columns -----
-      upperLeft:   section("UpperLeft",   placeRows(explicitRows([["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperLeft.x1, b.UpperLeft.x2, "end")),
-      upperCenter: section("UpperCenter", placeRows(uniformRows(["F","G","H","I","J","K","L"], 16), b.UpperCenter.x1, b.UpperCenter.x2, "center")),
+      // ----- Upper block (rows A-L), 3 columns -----
+      // A-E added in front of F: wedge counts continue F's existing ladder
+      // (F=7,G=8,...) backward by the same -1/row step (E=6,D=5,C=4,B=3,
+      // A=2), and A-E use 15 seats in the center column (F-L keeps 16) per
+      // spec, so upperCenter is now two uniformRows blocks concatenated
+      // rather than one — each row still centers independently via the
+      // "center" anchor, so mixing counts in one array is fine.
+      upperLeft:   section("UpperLeft",   placeRows(explicitRows([["A",2],["B",3],["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperLeft.x1, b.UpperLeft.x2, "end")),
+      upperCenter: section("UpperCenter", placeRows([...uniformRows(["A","B","C","D","E"], 15), ...uniformRows(["F","G","H","I","J","K","L"], 16)], b.UpperCenter.x1, b.UpperCenter.x2, "center")),
       // Mirror image of UpperLeft: same per-row seat counts, flush against
       // the opposite (inner/center-aisle) edge so the wedge grows outward
       // the other way.
-      upperRight:  section("UpperRight",  placeRows(explicitRows([["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
+      upperRight:  section("UpperRight",  placeRows(explicitRows([["A",2],["B",3],["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
 
       // ----- Main lower block (rows M-V), 3 columns + 2 balconies -----
       // Stepped wedge per-row counts confirmed against the reference table:
@@ -581,7 +602,7 @@
   function groupById(id){ return state.groups.find(g=>g.id===id); }
   function escapeAttr(s){ return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
 
-  const UPPER_ROWS = ["F","G","H","I","J","K","L"];
+  const UPPER_ROWS = ["A","B","C","D","E","F","G","H","I","J","K","L"];
   const LOWER_ROWS = ["M","N","O","P","Q","R","S","T","U","V"];
   const REAR_ROWS  = ["AB","AC","AD","AE"];
   const SEAT_SECTIONS = ["upperLeft","upperCenter","upperRight","lowerLeft","lowerCenter","lowerRight","rearLeft","rearCenter","rearRight"];
@@ -809,7 +830,7 @@
   function exitRowEl(){
     const el = document.createElement("div");
     el.className = "exit-row";
-    el.style.top = px(225,"h")+"px";
+    el.style.top = px(350,"h")+"px"; // shifted +125 with the L/M gap (see ROW_Y)
     const l = document.createElement("button"); l.className="arrow"; l.textContent="◀ EXIT";
     const line = document.createElement("div"); line.className="line";
     const r = document.createElement("button"); r.className="arrow"; r.textContent="EXIT ▶";
@@ -821,7 +842,7 @@
     const el = document.createElement("div");
     el.className = "aisle-gap";
     el.textContent = "Aisle";
-    el.style.top = px(497,"h")+"px";
+    el.style.top = px(622,"h")+"px"; // shifted +125 with the V/AB gap (see ROW_Y)
     return el;
   }
 
@@ -1688,7 +1709,7 @@
     const seat = calibDrag.seat;
     const before = {x:seat.x, y:seat.y};
     seat.x = (newLeftPx/CANVAS_W)*1000;
-    seat.y = (newTopPx/CANVAS_H)*600;
+    seat.y = (newTopPx/CANVAS_H)*LOGICAL_H;
     const changed = [{seat, before, after:{x:seat.x, y:seat.y}}];
 
     // If this was a row's first/last seat, re-align everything between the

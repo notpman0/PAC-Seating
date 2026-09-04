@@ -46,6 +46,7 @@
   #viewTabs button{border:1px solid var(--border);background:#fff;padding:5px 11px;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0;}
   #viewTabs button:hover{background:var(--accent-soft);}
   #viewTabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  #viewTabs button:disabled{opacity:.45;cursor:not-allowed;}
 
   /* ---------- Calibration mode ---------- */
   #calibBar{display:none;align-items:center;gap:8px;padding:8px 14px;background:#fff6db;border-bottom:1px solid #eed488;font-size:12.5px;flex-wrap:wrap;}
@@ -118,7 +119,7 @@
 
   .exit-row{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;align-items:center;gap:14px;padding:0 30px;color:var(--danger);font-weight:800;font-size:13px;box-sizing:border-box;}
   .exit-row .line{flex:1;height:5px;background:#1f2430;border-radius:2px;}
-  .exit-row .arrow{border:none;background:#e0453c;color:#fff;font-weight:800;font-size:12px;padding:6px 12px;border-radius:5px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .exit-row .arrow,.aisle-exits .arrow{border:none;background:#e0453c;color:#fff;font-weight:800;font-size:12px;padding:6px 12px;border-radius:5px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3);}
 
   .balcony{position:absolute;box-sizing:border-box;border:3px solid #1f2430;border-radius:8px;padding:8px 3px;}
   .balcony-title{text-align:center;font-size:15px;font-weight:800;letter-spacing:.04em;margin-bottom:8px;color:#0b0d11;}
@@ -127,6 +128,8 @@
 
   .aisle-gap{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;align-items:center;gap:10px;padding:0 40px;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;box-sizing:border-box;}
   .aisle-gap::before,.aisle-gap::after{content:"";flex:1;height:0;border-top:2px dashed #b7bfcc;}
+  .aisle-exits{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;justify-content:space-between;padding:0 30px;box-sizing:border-box;pointer-events:none;}
+  .aisle-exits .arrow{pointer-events:auto;}
 
   .row-label{position:absolute;transform:translate(-50%,-50%);font-size:14px;font-weight:800;color:var(--text);pointer-events:none;}
 
@@ -216,6 +219,7 @@
     <button class="btn" id="exportBtn">Export JSON</button>
     <button class="btn" id="importBtn">Import JSON</button>
     <button class="btn danger" id="clearBtn">Clear Assignments</button>
+    <button class="btn danger" id="clearTeacherBtn" style="display:none;">Clear Teacher Seats</button>
     <button class="btn" id="calibrateBtn">📐 Calibrate</button>
     <button class="btn" id="aiToggleBtn">✨ AI Generate</button>
     <div class="spacer"></div>
@@ -659,6 +663,30 @@
     return !isSectionHiddenInView(sectionKey) && !isRowHiddenInView(sectionKey, rowLabel);
   }
 
+  // "Row E-V (No Balcony)" hides A-D and the whole rear block, which used to
+  // just leave two big empty gaps (where A-D and AB-AE/balconies would have
+  // been) since every seat's canonical y is baked in at build time and
+  // doesn't know which view is active. Rather than mutate that canonical
+  // data (seat.y is also what calibration drags and JSON export read/write,
+  // so it must stay view-independent), rendering instead applies a display-
+  // only shift: E-V move up by exactly the space A-D used to occupy (4 rows
+  // x 25 pitch), closing that gap, and the canvas itself is shortened to end
+  // just past V, closing the bottom gap too. Only ever applied at the point
+  // each element converts its logical y to px — the stored seat.y is never
+  // touched, so switching back to "All Included" needs no re-computation.
+  const EV_VIEW_ROW_SHIFT = 100;
+  const EV_VIEW_SHIFTED_ROWS = new Set(["E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V"]);
+  function rowYShift(rowLabel){
+    return (currentView==="noBalconyEV" && EV_VIEW_SHIFTED_ROWS.has(rowLabel)) ? EV_VIEW_ROW_SHIFT : 0;
+  }
+  // Bottom edge of visible content per view, in logical units — drives
+  // #canvas's actual rendered height so trimmed-away space isn't just blank
+  // canvas. "all"/"noBalconyFull" both still use the full rear block, so
+  // they keep the full LOGICAL_H height.
+  function currentContentBottom(){
+    return currentView==="noBalconyEV" ? 530 : LOGICAL_H; // 530 = shifted V (500) + margin
+  }
+
   // ---------- Rendering ----------
   // Everything is placed with absolute left/top in px, computed from each
   // element's position in the 1000x600 unit grid via px(). Class-highlight
@@ -668,6 +696,7 @@
   // on top, readable over the seats).
   function render(){
     canvasEl.innerHTML = "";
+    canvasEl.style.height = px(currentContentBottom(),"h")+"px";
     const s = state.sections;
 
     if(!isSectionHiddenInView("balL")) canvasEl.appendChild(balconyEl(s.balL, BAL_BOUNDS.BalL));
@@ -675,15 +704,13 @@
 
     canvasEl.appendChild(stageEl());
     canvasEl.appendChild(exitRowEl());
-    canvasEl.appendChild(aisleEl());
+    const aisle = aisleEl();
+    if(aisle) canvasEl.appendChild(aisle);
+    const aisleExits = aisleExitsEl();
+    if(aisleExits) canvasEl.appendChild(aisleExits);
 
     const highlights = renderClassHighlights();
     highlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
-    // Big bold "TEACHER" area highlights only apply on the "Row E-V (No
-    // Balcony)" map — every other view keeps the plain small red-outlined
-    // seat circles (the original per-seat teacher marking), unchanged.
-    const teacherHighlights = currentView==="noBalconyEV" ? renderTeacherHighlights() : [];
-    teacherHighlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
 
     UPPER_ROWS.forEach(l=>{
       appendRowLabel("upperLeft", l, "left");
@@ -720,7 +747,6 @@
     });
 
     highlights.forEach(h => canvasEl.appendChild(h.label));
-    teacherHighlights.forEach(h => canvasEl.appendChild(h.label));
 
     renderGroups();
     renderStats();
@@ -740,7 +766,7 @@
       const xs = row.seats.map(s=>s.x);
       anchorX = side==="left" ? Math.min(...xs)-16 : Math.max(...xs)+16;
     }
-    const y = row.seats[0].y;
+    const y = row.seats[0].y - rowYShift(rowLabel);
     canvasEl.appendChild(rowLabelEl(rowLabel, anchorX, y));
   }
 
@@ -778,7 +804,7 @@
             const k = sec.id+"|"+runGroup;
             if(!bySectionClass.has(k)) bySectionClass.set(k, []);
             const xs = run.map(s=>s.x);
-            const rowY = run[0].y;
+            const rowY = run[0].y - rowYShift(row.label);
             bySectionClass.get(k).push({
               rowOrder,
               // A seat circle's radius is ~7 units, so a 5-unit pad cut right
@@ -829,72 +855,6 @@
       label.style.left = px(cx,"w")+"px";
       label.style.top = px(cy,"h")+"px";
       out.push({boxes, label});
-    });
-    return out;
-  }
-
-  // Same staircase-box-and-bold-label treatment as class highlights, but for
-  // teacher seats — for marking a whole block reserved for staff rather than
-  // tracking it seat-by-seat. Individually-scattered teacher seats (the
-  // normal case) still just show as small red-outlined circles; a block only
-  // gets the big highlight once it has 3+ contiguous teacher seats in a row,
-  // matching the same "not worth it for 1-2 seats" threshold class
-  // highlights use — this is meant for broader arrangements, not every seat.
-  function renderTeacherHighlights(){
-    const bySection = new Map(); // sectionId -> segments[]
-    SEAT_SECTIONS.forEach(key=>{
-      if(isSectionHiddenInView(key)) return;
-      const sec = state.sections[key];
-      sec.rows.forEach((row, rowOrder)=>{
-        if(isRowHiddenInView(key, row.label)) return;
-        let run = [];
-        const flush = ()=>{
-          if(run.length){
-            if(!bySection.has(sec.id)) bySection.set(sec.id, []);
-            const xs = run.map(s=>s.x);
-            const rowY = run[0].y;
-            bySection.get(sec.id).push({
-              rowOrder,
-              x1: Math.min(...xs)-9, x2: Math.max(...xs)+9,
-              y1: rowY-ROW_PITCH_Y/2, y2: rowY+ROW_PITCH_Y/2,
-              seats: run
-            });
-          }
-          run = [];
-        };
-        row.seats.forEach(seat=>{
-          if(seat.role!=="teacher"){ flush(); return; }
-          run.push(seat);
-        });
-        flush();
-      });
-    });
-
-    const TEACHER_COLOR = "#c0392b"; // matches --teacher / .seat.teacher background
-    const out = [];
-    bySection.forEach((segments)=>{
-      const allSeats = segments.flatMap(s=>s.seats);
-      if(allSeats.length<3) return; // not worth a highlight for 1-2 seats
-
-      segments.sort((a,b)=>a.rowOrder-b.rowOrder);
-      const clusters = [[segments[0]]];
-      for(let i=1;i<segments.length;i++){
-        if(segments[i].rowOrder===segments[i-1].rowOrder+1) clusters[clusters.length-1].push(segments[i]);
-        else clusters.push([segments[i]]);
-      }
-
-      clusters.forEach(cluster=>{
-        const box = svgPolygonEl(buildStaircasePath(cluster), TEACHER_COLOR);
-        const clusterSeats = cluster.flatMap(c=>c.seats);
-        const allX = clusterSeats.map(s=>s.x), allY = clusterSeats.map(s=>s.y);
-        const cx = (Math.min(...allX)+Math.max(...allX))/2, cy = (Math.min(...allY)+Math.max(...allY))/2;
-        const label = document.createElement("div");
-        label.className = "class-highlight-label";
-        label.textContent = "TEACHER";
-        label.style.left = px(cx,"w")+"px";
-        label.style.top = px(cy,"h")+"px";
-        out.push({boxes:[box], label});
-      });
     });
     return out;
   }
@@ -961,7 +921,9 @@
   function exitRowEl(){
     const el = document.createElement("div");
     el.className = "exit-row";
-    el.style.top = px(350,"h")+"px"; // shifted +125 with the L/M gap (see ROW_Y)
+    // In the "Row E-V" view, L/M shift up by EV_VIEW_ROW_SHIFT (see
+    // rowYShift) so the exit row — meant to sit between them — follows.
+    el.style.top = px(350 - (currentView==="noBalconyEV" ? EV_VIEW_ROW_SHIFT : 0),"h")+"px";
     const l = document.createElement("button"); l.className="arrow"; l.textContent="◀ EXIT";
     const line = document.createElement("div"); line.className="line";
     const r = document.createElement("button"); r.className="arrow"; r.textContent="EXIT ▶";
@@ -970,10 +932,26 @@
   }
 
   function aisleEl(){
+    // The rear block (AB-AE) it divides from is hidden in "Row E-V", so the
+    // divider itself has nothing left to separate — skip it there.
+    if(currentView==="noBalconyEV") return null;
     const el = document.createElement("div");
     el.className = "aisle-gap";
     el.textContent = "Aisle";
     el.style.top = px(622,"h")+"px"; // shifted +125 with the V/AB gap (see ROW_Y)
+    return el;
+  }
+
+  // Second pair of exit markers, flanking the aisle divider (same decorative
+  // marker as the stage-side exit row — no click handler on either pair).
+  function aisleExitsEl(){
+    if(currentView==="noBalconyEV") return null; // no aisle divider here, so nothing to flank
+    const el = document.createElement("div");
+    el.className = "aisle-exits";
+    el.style.top = px(622,"h")+"px";
+    const l = document.createElement("button"); l.className="arrow"; l.textContent="◀ EXIT";
+    const r = document.createElement("button"); r.className="arrow"; r.textContent="EXIT ▶";
+    el.append(l, r);
     return el;
   }
 
@@ -1016,7 +994,7 @@
     if(abs){
       s.classList.add("abs");
       s.style.left = px(seat.x,"w")+"px";
-      s.style.top = px(seat.y,"h")+"px";
+      s.style.top = px(seat.y - rowYShift(seat.row),"h")+"px";
       if(calibSelectedSeats.has(seat.id)) s.classList.add("calib-selected");
     }
     seatIndex.set(seat.id, {seat, sec});
@@ -1400,6 +1378,7 @@
   });
 
   // ---------- Toolbar ----------
+  const clearTeacherBtn = document.getElementById("clearTeacherBtn");
   document.querySelectorAll(".modebar button").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       document.querySelectorAll(".modebar button").forEach(b=>b.classList.remove("active"));
@@ -1407,10 +1386,16 @@
       mode = btn.dataset.mode;
       closeAssignPopup();
       updateLegendHint();
+      clearTeacherBtn.style.display = mode==="teacher" ? "" : "none";
       showTip(mode==="assign" ? "Assign mode — select seats, then choose a class in the popup"
         : mode==="ban" ? "Ban Seat mode — click or drag to toggle seats banned"
         : "Teacher Seat mode — click or drag to toggle seats as teacher seats");
     });
+  });
+  clearTeacherBtn.addEventListener("click", ()=>{
+    if(!confirm("Clear all teacher seats back to normal student seats?")) return;
+    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{ if(seat.role==="teacher") seat.role="student"; })));
+    saveState(); render();
   });
 
   // ---------- Zoom ----------
@@ -1622,6 +1607,16 @@
     calibBar.classList.toggle("show", calibrating);
     canvasEl.classList.toggle("calibrating", calibrating);
     modebarEl.classList.toggle("calib-disabled", calibrating);
+    // Restricted views apply a DISPLAY-only y-shift (see rowYShift) so a
+    // drag's on-screen position no longer maps 1:1 to true seat.y — force
+    // back to "All Included" (the unshifted view) while dragging seats
+    // around, and lock the tabs so that can't change mid-drag.
+    if(calibrating && currentView!=="all"){
+      currentView = "all";
+      viewTabsEl.querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.view==="all"));
+    }
+    viewTabsEl.classList.toggle("locked", calibrating);
+    viewTabsEl.querySelectorAll("button").forEach(b=> b.disabled = calibrating);
     if(!calibrating){ calibSelectedSeats.clear(); updateCalibSelectionUI(); render(); }
     showTip(calibrating
       ? "Calibration mode — drag seats onto the reference image. Drag a row's first/last seat to auto-align the whole row."

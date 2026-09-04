@@ -407,18 +407,19 @@
     const b = SECTION_BOUNDS;
     return {
       // ----- Upper block (rows A-L), 3 columns -----
-      // A-E added in front of F: wedge counts continue F's existing ladder
-      // (F=7,G=8,...) backward by the same -1/row step (E=6,D=5,C=4,B=3,
-      // A=2), and A-E use 15 seats in the center column (F-L keeps 16) per
-      // spec, so upperCenter is now two uniformRows blocks concatenated
-      // rather than one — each row still centers independently via the
-      // "center" anchor, so mixing counts in one array is fine.
-      upperLeft:   section("UpperLeft",   placeRows(explicitRows([["A",2],["B",3],["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperLeft.x1, b.UpperLeft.x2, "end")),
+      // A-E added in front of F, center column only (15 seats each, F-L
+      // keeps 16) — upperCenter is two uniformRows blocks concatenated
+      // rather than one; each row still centers independently via the
+      // "center" anchor, so mixing counts in one array is fine. The left/
+      // right wedges only get C-E (continuing F's ladder backward by -1/row:
+      // E=6,D=5,C=4) — A and B were removed from the wedges but stay in the
+      // center block.
+      upperLeft:   section("UpperLeft",   placeRows(explicitRows([["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperLeft.x1, b.UpperLeft.x2, "end")),
       upperCenter: section("UpperCenter", placeRows([...uniformRows(["A","B","C","D","E"], 15), ...uniformRows(["F","G","H","I","J","K","L"], 16)], b.UpperCenter.x1, b.UpperCenter.x2, "center")),
       // Mirror image of UpperLeft: same per-row seat counts, flush against
       // the opposite (inner/center-aisle) edge so the wedge grows outward
       // the other way.
-      upperRight:  section("UpperRight",  placeRows(explicitRows([["A",2],["B",3],["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
+      upperRight:  section("UpperRight",  placeRows(explicitRows([["C",4],["D",5],["E",6],["F",7],["G",8],["H",9],["I",10],["J",11],["K",12],["L",13]]), b.UpperRight.x1, b.UpperRight.x2, "start")),
 
       // ----- Main lower block (rows M-V), 3 columns + 2 balconies -----
       // Stepped wedge per-row counts: M12,N12,O10,P10,Q9,R9,S7,T7,U6,V4 —

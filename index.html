@@ -1227,6 +1227,22 @@
       btn.innerHTML = `<span class="swatch" style="border-radius:4px;"></span><span>${escapeAttr(g.name)}</span>` + (sameGroupId===g.id ? `<span class="current-tag">current</span>` : "");
       btn.querySelector(".swatch").style.background = g.color;
       btn.addEventListener("click", ()=>{
+        const target = g.targetCount || 0;
+        if(target > 0){
+          const alreadySeated = allSeatSections().reduce((n,s)=> n + s.rows.reduce((m,r)=> m + r.seats.filter(x=>x.role!=="teacher" && x.groupId===g.id).length, 0), 0);
+          const newOnes = assignable.filter(s=>s.groupId!==g.id); // seats already in this class don't count against the cap again
+          const remaining = target - alreadySeated;
+          if(remaining <= 0){
+            alert(`"${g.name}" has already reached its maximum of ${target} student${target===1?"":"s"}. No seats were assigned.`);
+            return;
+          }
+          if(newOnes.length > remaining){
+            newOnes.slice(0, remaining).forEach(s=>{ s.groupId = g.id; });
+            saveState(); render(); closeAssignPopup();
+            alert(`"${g.name}"'s maximum of ${target} student${target===1?"":"s"} reached — only ${remaining} of the ${newOnes.length} selected seat${newOnes.length===1?"":"s"} were assigned.`);
+            return;
+          }
+        }
         assignable.forEach(s=>{ s.groupId = g.id; });
         saveState(); render(); closeAssignPopup();
       });

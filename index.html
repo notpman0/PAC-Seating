@@ -37,6 +37,16 @@
   .btn:disabled:hover{background:#fff;}
   #calibrateBtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 
+  /* ---------- Map view tabs ---------- */
+  /* Own row rather than crammed into #topbar — #topbar is already tight
+     (see the earlier nowrap change), and this is a persistent navigation
+     control (always visible), unlike #calibBar/#aiBar which only show up
+     in their respective modes. */
+  #viewTabs{display:flex;gap:4px;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--border);overflow-x:auto;}
+  #viewTabs button{border:1px solid var(--border);background:#fff;padding:5px 11px;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0;}
+  #viewTabs button:hover{background:var(--accent-soft);}
+  #viewTabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+
   /* ---------- Calibration mode ---------- */
   #calibBar{display:none;align-items:center;gap:8px;padding:8px 14px;background:#fff6db;border-bottom:1px solid #eed488;font-size:12.5px;flex-wrap:wrap;}
   #calibBar.show{display:flex;}
@@ -211,6 +221,7 @@
     <div class="spacer"></div>
     <div id="stats"></div>
   </div>
+  <div id="viewTabs"></div>
   <div id="aiBar">
     <span class="calib-label">Describe what you want:</span>
     <input type="text" id="aiPromptInput" placeholder='e.g. "Assign row F in the center block to Year 9" or "Ban seats 1-3 in row V, lower left"'>
@@ -613,6 +624,41 @@
   const REAR_ROWS  = ["AB","AC","AD","AE"];
   const SEAT_SECTIONS = ["upperLeft","upperCenter","upperRight","lowerLeft","lowerCenter","lowerRight","rearLeft","rearCenter","rearRight"];
 
+  // ---------- Map view tabs ----------
+  // Three named "map variants" of the SAME underlying seat data — hiding a
+  // row or a whole section is purely a display/interaction filter (nothing
+  // is deleted from state), so switching tabs never loses assignments made
+  // elsewhere; a hidden seat just isn't rendered (and so can't be selected)
+  // while that tab is active.
+  const VIEWS = [
+    {id:"all",          label:"All Included"},
+    {id:"noBalconyFull", label:"Row A-AE (No Balcony)"},
+    {id:"noBalconyEV",   label:"Row E-V (No Balcony)"},
+  ];
+  const VIEW_HIDDEN_SECTIONS = {
+    all: [],
+    noBalconyFull: ["balL","balR"],
+    // "Row E to V" drops the whole rear block (AB-AE) and the balconies —
+    // only the front-of-house floor from E through V remains.
+    noBalconyEV: ["balL","balR","rearLeft","rearCenter","rearRight"],
+  };
+  const VIEW_HIDDEN_ROWS = {
+    all: {},
+    noBalconyFull: {},
+    // upperLeft/upperRight already start at C (see buildSections), so only
+    // C/D need hiding there; upperCenter still has A/B too.
+    noBalconyEV: { upperLeft:["C","D"], upperCenter:["A","B","C","D"], upperRight:["C","D"] },
+  };
+  let currentView = "all";
+  function isSectionHiddenInView(sectionKey){ return VIEW_HIDDEN_SECTIONS[currentView].includes(sectionKey); }
+  function isRowHiddenInView(sectionKey, rowLabel){
+    const hidden = VIEW_HIDDEN_ROWS[currentView][sectionKey];
+    return hidden ? hidden.includes(rowLabel) : false;
+  }
+  function isRowVisible(sectionKey, rowLabel){
+    return !isSectionHiddenInView(sectionKey) && !isRowHiddenInView(sectionKey, rowLabel);
+  }
+
   // ---------- Rendering ----------
   // Everything is placed with absolute left/top in px, computed from each
   // element's position in the 1000x600 unit grid via px(). Class-highlight
@@ -624,8 +670,8 @@
     canvasEl.innerHTML = "";
     const s = state.sections;
 
-    canvasEl.appendChild(balconyEl(s.balL, BAL_BOUNDS.BalL));
-    canvasEl.appendChild(balconyEl(s.balR, BAL_BOUNDS.BalR));
+    if(!isSectionHiddenInView("balL")) canvasEl.appendChild(balconyEl(s.balL, BAL_BOUNDS.BalL));
+    if(!isSectionHiddenInView("balR")) canvasEl.appendChild(balconyEl(s.balR, BAL_BOUNDS.BalR));
 
     canvasEl.appendChild(stageEl());
     canvasEl.appendChild(exitRowEl());
@@ -633,6 +679,11 @@
 
     const highlights = renderClassHighlights();
     highlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
+    // Big bold "TEACHER" area highlights only apply on the "Row E-V (No
+    // Balcony)" map — every other view keeps the plain small red-outlined
+    // seat circles (the original per-seat teacher marking), unchanged.
+    const teacherHighlights = currentView==="noBalconyEV" ? renderTeacherHighlights() : [];
+    teacherHighlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
 
     UPPER_ROWS.forEach(l=>{
       appendRowLabel("upperLeft", l, "left");
@@ -660,11 +711,16 @@
     REAR_ROWS.forEach(l=> appendRowLabel("rearCenter", l, "left", rearCenterLabelX));
 
     SEAT_SECTIONS.forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
       const sec = s[key];
-      sec.rows.forEach(r => r.seats.forEach(seat => canvasEl.appendChild(renderSeat(sec, seat, true))));
+      sec.rows.forEach(r => {
+        if(isRowHiddenInView(key, r.label)) return;
+        r.seats.forEach(seat => canvasEl.appendChild(renderSeat(sec, seat, true)));
+      });
     });
 
     highlights.forEach(h => canvasEl.appendChild(h.label));
+    teacherHighlights.forEach(h => canvasEl.appendChild(h.label));
 
     renderGroups();
     renderStats();
@@ -675,6 +731,7 @@
   // a narrow wedge row gets a label close to its short span, and a
   // recalibrated row's label follows it automatically.
   function appendRowLabel(sectionKey, rowLabel, side, forcedX){
+    if(!isRowVisible(sectionKey, rowLabel)) return;
     const sec = state.sections[sectionKey];
     const row = sec.rows.find(r=>r.label===rowLabel);
     if(!row || !row.seats.length) return;
@@ -711,8 +768,10 @@
   function renderClassHighlights(){
     const bySectionClass = new Map(); // "sectionId|groupId" -> segments[]
     SEAT_SECTIONS.forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
       const sec = state.sections[key];
       sec.rows.forEach((row, rowOrder)=>{
+        if(isRowHiddenInView(key, row.label)) return;
         let run = [], runGroup = null;
         const flush = ()=>{
           if(run.length && runGroup){
@@ -770,6 +829,72 @@
       label.style.left = px(cx,"w")+"px";
       label.style.top = px(cy,"h")+"px";
       out.push({boxes, label});
+    });
+    return out;
+  }
+
+  // Same staircase-box-and-bold-label treatment as class highlights, but for
+  // teacher seats — for marking a whole block reserved for staff rather than
+  // tracking it seat-by-seat. Individually-scattered teacher seats (the
+  // normal case) still just show as small red-outlined circles; a block only
+  // gets the big highlight once it has 3+ contiguous teacher seats in a row,
+  // matching the same "not worth it for 1-2 seats" threshold class
+  // highlights use — this is meant for broader arrangements, not every seat.
+  function renderTeacherHighlights(){
+    const bySection = new Map(); // sectionId -> segments[]
+    SEAT_SECTIONS.forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
+      const sec = state.sections[key];
+      sec.rows.forEach((row, rowOrder)=>{
+        if(isRowHiddenInView(key, row.label)) return;
+        let run = [];
+        const flush = ()=>{
+          if(run.length){
+            if(!bySection.has(sec.id)) bySection.set(sec.id, []);
+            const xs = run.map(s=>s.x);
+            const rowY = run[0].y;
+            bySection.get(sec.id).push({
+              rowOrder,
+              x1: Math.min(...xs)-9, x2: Math.max(...xs)+9,
+              y1: rowY-ROW_PITCH_Y/2, y2: rowY+ROW_PITCH_Y/2,
+              seats: run
+            });
+          }
+          run = [];
+        };
+        row.seats.forEach(seat=>{
+          if(seat.role!=="teacher"){ flush(); return; }
+          run.push(seat);
+        });
+        flush();
+      });
+    });
+
+    const TEACHER_COLOR = "#c0392b"; // matches --teacher / .seat.teacher background
+    const out = [];
+    bySection.forEach((segments)=>{
+      const allSeats = segments.flatMap(s=>s.seats);
+      if(allSeats.length<3) return; // not worth a highlight for 1-2 seats
+
+      segments.sort((a,b)=>a.rowOrder-b.rowOrder);
+      const clusters = [[segments[0]]];
+      for(let i=1;i<segments.length;i++){
+        if(segments[i].rowOrder===segments[i-1].rowOrder+1) clusters[clusters.length-1].push(segments[i]);
+        else clusters.push([segments[i]]);
+      }
+
+      clusters.forEach(cluster=>{
+        const box = svgPolygonEl(buildStaircasePath(cluster), TEACHER_COLOR);
+        const clusterSeats = cluster.flatMap(c=>c.seats);
+        const allX = clusterSeats.map(s=>s.x), allY = clusterSeats.map(s=>s.y);
+        const cx = (Math.min(...allX)+Math.max(...allX))/2, cy = (Math.min(...allY)+Math.max(...allY))/2;
+        const label = document.createElement("div");
+        label.className = "class-highlight-label";
+        label.textContent = "TEACHER";
+        label.style.left = px(cx,"w")+"px";
+        label.style.top = px(cy,"h")+"px";
+        out.push({boxes:[box], label});
+      });
     });
     return out;
   }
@@ -1240,14 +1365,39 @@
 
   function renderStats(){
     let total=0, banned=0, assigned=0;
-    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
-      if(seat.role==="teacher") return;
-      total++;
-      if(seat.status==="banned") banned++;
-      else if(seat.groupId) assigned++;
-    })));
+    // Counts only what the CURRENT map view actually shows — switching tabs
+    // changes this summary too, since a hidden section/row isn't part of
+    // that "map" right now (see isSectionHiddenInView/isRowHiddenInView).
+    Object.entries(state.sections).forEach(([key, sec])=>{
+      if(!Array.isArray(sec.rows) || isSectionHiddenInView(key)) return;
+      sec.rows.forEach(r=>{
+        if(isRowHiddenInView(key, r.label)) return;
+        r.seats.forEach(seat=>{
+          if(seat.role==="teacher") return;
+          total++;
+          if(seat.status==="banned") banned++;
+          else if(seat.groupId) assigned++;
+        });
+      });
+    });
     statsEl.textContent = `${total} seats · ${assigned} assigned · ${banned} banned · ${total-assigned-banned} open`;
   }
+
+  // ---------- Map view tabs ----------
+  const viewTabsEl = document.getElementById("viewTabs");
+  VIEWS.forEach(v=>{
+    const btn = document.createElement("button");
+    btn.textContent = v.label;
+    btn.dataset.view = v.id;
+    if(v.id===currentView) btn.classList.add("active");
+    btn.addEventListener("click", ()=>{
+      if(currentView===v.id) return;
+      currentView = v.id;
+      viewTabsEl.querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.view===v.id));
+      render();
+    });
+    viewTabsEl.appendChild(btn);
+  });
 
   // ---------- Toolbar ----------
   document.querySelectorAll(".modebar button").forEach(btn=>{

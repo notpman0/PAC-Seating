@@ -1286,8 +1286,20 @@
     if(apCreateBtn.disabled) return;
     const name = apNewName.value.trim();
     if(!name){ apWarn.textContent = "Give the class a name first."; return; }
-    const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color: apNewColor.value, targetCount:0};
+    // Ask for the class's student count right at creation — defaults to the
+    // number of seats just selected, since that's the common case (drag an
+    // area, name it, done), but can be set higher/lower/blank (no limit).
+    const countInput = prompt(`How many students are in "${name}"? (leave blank for no limit)`, String(pendingSeats.length));
+    if(countInput===null) return; // cancelled — class not created
+    const target = countInput.trim()==="" ? 0 : Math.max(0, parseInt(countInput,10)||0);
+    const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color: apNewColor.value, targetCount: target};
     state.groups.push(g);
+    if(target>0 && pendingSeats.length>target){
+      pendingSeats.slice(0,target).forEach(s=>{ s.groupId = g.id; });
+      saveState(); render(); closeAssignPopup();
+      alert(`"${name}"'s maximum of ${target} student${target===1?"":"s"} reached — only ${target} of the ${pendingSeats.length} selected seats were assigned.`);
+      return;
+    }
     pendingSeats.forEach(s=>{ s.groupId = g.id; });
     saveState(); render(); closeAssignPopup();
   });

@@ -128,7 +128,10 @@
 
   .aisle-gap{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;align-items:center;gap:10px;padding:0 40px;color:var(--muted);font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;box-sizing:border-box;}
   .aisle-gap::before,.aisle-gap::after{content:"";flex:1;height:0;border-top:2px dashed #b7bfcc;}
-  .aisle-exits{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;justify-content:space-between;padding:0 30px;box-sizing:border-box;pointer-events:none;}
+  /* padding pushed in from 30px to 100px — the balconies auto-size taller
+     than their nominal bounds (51 seats in 3 columns needs more height than
+     BAL_BOUNDS accounts for) and were overlapping these buttons at 30px. */
+  .aisle-exits{position:absolute;left:0;transform:translateY(-50%);width:100%;display:flex;justify-content:space-between;padding:0 100px;box-sizing:border-box;pointer-events:none;}
   .aisle-exits .arrow{pointer-events:auto;}
 
   .row-label{position:absolute;transform:translate(-50%,-50%);font-size:14px;font-weight:800;color:var(--text);pointer-events:none;}

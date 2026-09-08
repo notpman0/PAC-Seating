@@ -96,7 +96,8 @@
   #main{flex:1;display:flex;min-height:0;}
   #sidebar{width:250px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);overflow-y:auto;padding:14px;}
   #sidebar h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;}
-  .group-row{display:flex;flex-direction:column;gap:3px;padding:7px 8px;border-radius:8px;border:2px solid transparent;margin-bottom:4px;}
+  .group-row{display:flex;flex-direction:column;gap:3px;padding:7px 8px;border-radius:8px;border:2px solid transparent;margin-bottom:4px;user-select:none;-webkit-user-select:none;-moz-user-select:none;}
+  .group-row.drag-target{background:var(--accent-soft);}
   .group-row:hover{background:var(--bg);}
   .group-row-top{display:flex;align-items:center;gap:8px;}
   .group-arrange-check{flex-shrink:0;margin:0;cursor:pointer;}
@@ -644,22 +645,52 @@
 
   // Drag-paint for the class list's "include in auto-arrange" checkboxes —
   // same idea as the map's own drag-select (mousedown, drag across several
-  // targets, release), just applied to checkboxes instead of seats: drag
-  // down the list to tick/untick a run of classes in one gesture instead of
-  // clicking each one individually. Delegated on `document` (not
-  // groupListEl directly) since the checkboxes are recreated by innerHTML
-  // on every renderGroups() call.
-  let checkDragActive = false, checkDragValue = null;
+  // targets, release), just applied to whole class rows instead of seats:
+  // press anywhere on a row's background and drag down the list to tick/
+  // untick a run of classes in one gesture. Delegated on `document` (not
+  // groupListEl directly) since the rows are recreated by innerHTML on
+  // every renderGroups() call.
+  //
+  // Starts from anywhere on the row EXCEPT the specific controls that need
+  // their own normal click behavior (rename text, target-count number,
+  // delete button — clicking the checkbox itself still works fine too,
+  // since it's not in that exclusion list). Native text-selection is
+  // disabled on .group-row (see CSS) so dragging across the class name
+  // doesn't highlight text instead of painting checkboxes.
+  let checkDragActive = false, checkDragValue = null, checkDragRow = null;
+  function markDragTarget(row){
+    if(checkDragRow===row) return;
+    if(checkDragRow) checkDragRow.classList.remove("drag-target");
+    checkDragRow = row;
+    if(row) row.classList.add("drag-target");
+  }
   document.addEventListener("pointerdown", (e)=>{
-    const cb = e.target.closest && e.target.closest(".group-arrange-check");
+    const row = e.target.closest && e.target.closest(".group-row");
+    if(!row) return;
+    if(e.target.closest(".group-name, .group-target, .group-del, .swatch")) return; // let those keep their normal click behavior
+    const cb = row.querySelector(".group-arrange-check");
     if(!cb) return;
     checkDragActive = true;
-    checkDragValue = !cb.checked; // the state the native click is about to give it
+    checkDragValue = !cb.checked; // the state this row is about to switch to
+    // If the press landed on the checkbox itself, its own native click is
+    // about to toggle it (and fire the 'change' listener already attached
+    // per-row) — don't ALSO set it manually here, or the two would race.
+    if(e.target !== cb){
+      cb.checked = checkDragValue;
+      cb.dispatchEvent(new Event("change", {bubbles:true}));
+    }
+    markDragTarget(row);
   });
-  document.addEventListener("pointerup", ()=>{ checkDragActive = false; checkDragValue = null; });
-  document.addEventListener("pointerover", (e)=>{
+  document.addEventListener("pointerup", ()=>{
+    checkDragActive = false; checkDragValue = null;
+    markDragTarget(null);
+  });
+  document.addEventListener("pointermove", (e)=>{
     if(!checkDragActive || checkDragValue===null) return;
-    const cb = e.target.closest && e.target.closest(".group-arrange-check");
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const row = el && el.closest && el.closest(".group-row");
+    markDragTarget(row || null);
+    const cb = row && row.querySelector(".group-arrange-check");
     if(!cb || cb.checked === checkDragValue) return;
     cb.checked = checkDragValue;
     cb.dispatchEvent(new Event("change", {bubbles:true}));

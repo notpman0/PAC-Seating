@@ -99,6 +99,7 @@
   .group-row{display:flex;flex-direction:column;gap:3px;padding:7px 8px;border-radius:8px;border:2px solid transparent;margin-bottom:4px;}
   .group-row:hover{background:var(--bg);}
   .group-row-top{display:flex;align-items:center;gap:8px;}
+  .group-arrange-check{flex-shrink:0;margin:0;cursor:pointer;}
   .swatch{width:16px;height:16px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.15);cursor:pointer;}
   .group-name{border:none;background:transparent;font-size:13px;font-weight:600;flex:1;min-width:0;color:var(--text);}
   .group-name:focus{outline:1px solid var(--accent);border-radius:4px;}
@@ -256,7 +257,7 @@
     <div id="presetYearGroups"></div>
     <div class="preset-actions">
       <button class="btn primary" id="createSelectedClassesBtn">+ Create Ticked Classes</button>
-      <span class="calib-label" style="margin-left:6px;">Auto-arrange every class with a head count:</span>
+      <span class="calib-label" style="margin-left:6px;">Auto-arrange the ticked classes in the sidebar (checkbox next to each):</span>
       <button class="btn" id="strategyRowsBtn" title="Front to back, filling left → center → right within each row — a class can end up split across the side wedges.">↕ Front-to-Back (Rows)</button>
       <button class="btn" id="strategyBlocksBtn" title="Front to back, one whole section at a time (Center fully, then Left fully, then Right fully) — far less likely to split a class across both side wedges.">↕ Front-to-Back (No Split Sides)</button>
     </div>
@@ -1409,6 +1410,7 @@
       const target = g.targetCount || 0;
       rowEl.innerHTML = `
         <div class="group-row-top">
+          <input type="checkbox" class="group-arrange-check" ${g.arrangeChecked!==false ? "checked" : ""} title="Include this class when auto-arranging">
           <span class="swatch"></span>
           <input type="text" class="group-name" value="${escapeAttr(g.name)}">
           <button class="group-del">✕</button>
@@ -1420,6 +1422,11 @@
           <span>students</span>
         </div>
       `;
+      rowEl.querySelector(".group-arrange-check").addEventListener("click", e=>e.stopPropagation());
+      rowEl.querySelector(".group-arrange-check").addEventListener("change", e=>{
+        g.arrangeChecked = e.target.checked;
+        saveState();
+      });
       rowEl.querySelector(".swatch").style.background = g.color;
       rowEl.querySelector(".swatch").addEventListener("click",(e)=>{ e.stopPropagation(); openColorDlg(g.id, g.color); });
       const nameInput = rowEl.querySelector(".group-name");
@@ -2246,17 +2253,22 @@ User instruction: "${userPrompt}"`;
   }
 
   function applyArrangementStrategy(seatOrder, label){
-    const groupsWithTarget = state.groups.filter(g=>(g.targetCount||0)>0);
+    // Only classes with the sidebar checkbox ticked (see renderGroups) AND a
+    // student count set are touched — unticked classes' existing seats are
+    // left completely alone, both when clearing and when filling.
+    const groupsWithTarget = state.groups.filter(g=>(g.targetCount||0)>0 && g.arrangeChecked!==false);
     if(!groupsWithTarget.length){
-      presetStatusEl.textContent = "No classes with a student count set — nothing to arrange.";
+      presetStatusEl.textContent = "No ticked classes with a student count set — nothing to arrange.";
       return;
     }
-    if(!confirm(`${label}: this clears ALL current seat assignments on the visible map and re-seats every class with a student count, from the front, in sidebar order. Continue?`)) return;
+    if(!confirm(`${label}: this clears current seat assignments for the ${groupsWithTarget.length} ticked class(es) (${groupsWithTarget.map(g=>g.name).join(", ")}) and re-seats them from the front. Other classes' seats are left alone. Continue?`)) return;
+    const targetIds = new Set(groupsWithTarget.map(g=>g.id));
     allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
-      if(seat.role!=="teacher"){ seat.groupId=null; seat.occupant=""; }
+      if(seat.role!=="teacher" && targetIds.has(seat.groupId)){ seat.groupId=null; seat.occupant=""; }
     })));
     let gi=0, filled=0;
     for(const seat of seatOrder){
+      if(seat.groupId) continue; // occupied by an un-ticked class — leave it, don't overwrite
       while(gi<groupsWithTarget.length && filled>=groupsWithTarget[gi].targetCount) { gi++; filled=0; }
       if(gi>=groupsWithTarget.length) break;
       seat.groupId = groupsWithTarget[gi].id;

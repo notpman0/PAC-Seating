@@ -259,8 +259,7 @@
     <div class="preset-actions">
       <button class="btn primary" id="createSelectedClassesBtn">+ Create Ticked Classes</button>
       <span class="calib-label" style="margin-left:6px;">Auto-arrange the ticked classes in the sidebar (checkbox next to each):</span>
-      <button class="btn" id="strategyRowsBtn" title="Front to back, filling left → center → right within each row — a class can end up split across the side wedges.">↕ Front-to-Back (Rows)</button>
-      <button class="btn" id="strategyBlocksBtn" title="Front to back, one whole section at a time (Center fully, then Left fully, then Right fully) — far less likely to split a class across both side wedges.">↕ Front-to-Back (No Split Sides)</button>
+      <button class="btn" id="autoArrangeBtn" title="Fills upper (front) regions before lower/rear ones, Center → Left → Right. Each class stays within one region, spilling into another region only if it's on the same side (e.g. Upper Left → Lower Left is fine; Upper Left → Upper Right never happens).">↕ Auto-Arrange</button>
     </div>
     <span id="presetStatus" class="calib-hint"></span>
   </div>
@@ -2265,48 +2264,28 @@ User instruction: "${userPrompt}"`;
     });
     return out;
   }
-  // Rows: front-to-back, interleaving left→center→right within every single
-  // row — a class can end up split across the two side wedges if its count
-  // doesn't divide evenly.
-  function rowMajorSeatOrder(){
-    const allRowLabels = [...UPPER_ROWS, ...LOWER_ROWS, ...REAR_ROWS];
-    const bucket = new Map(); // rowLabel -> {left:[],center:[],right:[]}
-    [["upperLeft","left"],["upperCenter","center"],["upperRight","right"],
-     ["lowerLeft","left"],["lowerCenter","center"],["lowerRight","right"],
-     ["rearLeft","left"],["rearCenter","center"],["rearRight","right"]].forEach(([key,side])=>{
-      if(isSectionHiddenInView(key)) return;
-      state.sections[key].rows.forEach(row=>{
-        if(isRowHiddenInView(key, row.label)) return;
-        row.seats.forEach(seat=>{
-          if(seat.role==="teacher" || seat.status==="banned") return;
-          if(!bucket.has(row.label)) bucket.set(row.label, {left:[],center:[],right:[]});
-          bucket.get(row.label)[side].push(seat);
-        });
-      });
-    });
-    const out = [];
-    allRowLabels.forEach(label=>{
-      const b = bucket.get(label);
-      if(!b) return;
-      out.push(...b.left, ...b.center, ...b.right);
-    });
-    // Balconies aren't part of the main floor's row sequence (balconyRow
-    // builds one unlabeled block per side, not named rows like everywhere
-    // else), so they're appended after the whole floor rather than
-    // interleaved mid-row.
-    out.push(...frontToBackSeats(["balL","balR"]));
-    return out;
-  }
-  // Blocks: Center done completely front-to-back first, then the whole Left
-  // side (floor + its balcony) completely, then the whole Right side (floor
-  // + its balcony) completely — a class only ever spills from Center into a
-  // side, or fills one side outright; it never has seats active in Left AND
-  // Right at the same time the way row-by-row can.
-  function sectionMajorSeatOrder(){
-    return frontToBackSeats(["upperCenter","lowerCenter","rearCenter","upperLeft","lowerLeft","rearLeft","balL","upperRight","lowerRight","rearRight","balR"]);
-  }
+  // Region-fill: picks where each class STARTS by walking regions in this
+  // priority order — both upper (front) regions before either lower one,
+  // both lower before rear, floor before balconies — so the venue fills
+  // front-to-back overall, not just within one column.
+  const REGION_PRIORITY = ["upperCenter","upperLeft","upperRight","lowerCenter","lowerLeft","lowerRight","rearCenter","rearLeft","rearRight","balL","balR"];
+  // A class is never split between Left and Right (that's the "horizontally
+  // separated" case) — if it doesn't fully fit in the region it started in,
+  // it only continues into ANOTHER region on the SAME side (its own
+  // upper→lower→rear→balcony chain), never jumping sides and never jumping
+  // ahead of REGION_PRIORITY except via that same-side chain.
+  const REGION_SIDE = {
+    upperCenter:"center", lowerCenter:"center", rearCenter:"center",
+    upperLeft:"left", lowerLeft:"left", rearLeft:"left", balL:"left",
+    upperRight:"right", lowerRight:"right", rearRight:"right", balR:"right",
+  };
+  const SIDE_REGION_CHAIN = {
+    center: ["upperCenter","lowerCenter","rearCenter"],
+    left:   ["upperLeft","lowerLeft","rearLeft","balL"],
+    right:  ["upperRight","lowerRight","rearRight","balR"],
+  };
 
-  function applyArrangementStrategy(seatOrder, label){
+  function applyRegionFillArrangement(){
     // Only classes with the sidebar checkbox ticked (see renderGroups) AND a
     // student count set are touched — unticked classes' existing seats are
     // left completely alone, both when clearing and when filling.
@@ -2315,37 +2294,47 @@ User instruction: "${userPrompt}"`;
       presetStatusEl.textContent = "No ticked classes with a student count set — nothing to arrange.";
       return;
     }
-    if(!confirm(`${label}: this clears current seat assignments for the ${groupsWithTarget.length} ticked class(es) (${groupsWithTarget.map(g=>g.name).join(", ")}) and re-seats them from the front. Other classes' seats are left alone. Continue?`)) return;
+    if(!confirm(`Auto-Arrange: this clears current seat assignments for the ${groupsWithTarget.length} ticked class(es) (${groupsWithTarget.map(g=>g.name).join(", ")}) and re-seats them from the front. Other classes' seats are left alone. Continue?`)) return;
     const targetIds = new Set(groupsWithTarget.map(g=>g.id));
     allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
       if(seat.role!=="teacher" && targetIds.has(seat.groupId)){ seat.groupId=null; seat.occupant=""; }
     })));
-    let gi=0, filled=0;
-    for(const seat of seatOrder){
-      if(seat.groupId) continue; // occupied by an un-ticked class — leave it, don't overwrite
-      while(gi<groupsWithTarget.length && filled>=groupsWithTarget[gi].targetCount) { gi++; filled=0; }
-      if(gi>=groupsWithTarget.length) break;
-      seat.groupId = groupsWithTarget[gi].id;
-      filled++;
-    }
-    saveState(); render();
-    // Report actual results (counted from the real data) rather than trusting
-    // loop position — the loop can end exactly on a class's last seat, which
-    // isn't distinguishable from "ran out mid-class" just from gi/filled.
-    const shortfalls = groupsWithTarget.filter(g=>{
-      const seatedCount = allSeatSections().reduce((n,s)=> n + s.rows.reduce((m,r)=> m + r.seats.filter(x=>x.role!=="teacher" && x.groupId===g.id).length, 0), 0);
-      return seatedCount < g.targetCount;
+
+    // One live front-to-back seat cursor per region, shared across every
+    // class in this run — a later class picking the same region (because an
+    // earlier one didn't fill it completely) resumes right where the last
+    // one left off, rather than starting over.
+    const regionSeats = {}, regionPos = {};
+    REGION_PRIORITY.forEach(key=>{
+      regionSeats[key] = frontToBackSeats([key]).filter(s=>!s.groupId); // exclude seats an un-ticked class already holds
+      regionPos[key] = 0;
     });
+    const hasSpace = key => regionPos[key] < regionSeats[key].length;
+
+    const shortfalls = [];
+    groupsWithTarget.forEach(g=>{
+      let remaining = g.targetCount;
+      const startRegion = REGION_PRIORITY.find(hasSpace);
+      if(!startRegion){ shortfalls.push(g); return; }
+      const chain = SIDE_REGION_CHAIN[REGION_SIDE[startRegion]];
+      let idx = chain.indexOf(startRegion);
+      while(remaining>0 && idx<chain.length){
+        const key = chain[idx];
+        while(remaining>0 && hasSpace(key)){
+          regionSeats[key][regionPos[key]++].groupId = g.id;
+          remaining--;
+        }
+        idx++;
+      }
+      if(remaining>0) shortfalls.push(g);
+    });
+
+    saveState(); render();
     presetStatusEl.textContent = shortfalls.length
-      ? `${label} applied — ran out of visible seats before fully seating: ${shortfalls.map(g=>g.name).join(", ")}.`
-      : `${label} applied — every class with a student count was fully seated.`;
+      ? `Auto-Arrange applied — ran out of same-side room before fully seating: ${shortfalls.map(g=>g.name).join(", ")}.`
+      : `Auto-Arrange applied — every ticked class was fully seated, upper regions first, no class split across sides.`;
   }
-  document.getElementById("strategyRowsBtn").addEventListener("click", ()=>{
-    applyArrangementStrategy(rowMajorSeatOrder(), "Front-to-Back (Rows)");
-  });
-  document.getElementById("strategyBlocksBtn").addEventListener("click", ()=>{
-    applyArrangementStrategy(sectionMajorSeatOrder(), "Front-to-Back (No Split Sides)");
-  });
+  document.getElementById("autoArrangeBtn").addEventListener("click", applyRegionFillArrangement);
 
   document.getElementById("aiGenerateBtn").addEventListener("click", async ()=>{
     const promptEl = document.getElementById("aiPromptInput");

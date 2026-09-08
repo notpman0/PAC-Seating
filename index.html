@@ -843,6 +843,8 @@
 
     const highlights = renderClassHighlights();
     highlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
+    const balconyHighlights = renderBalconyHighlights();
+    balconyHighlights.forEach(h => h.boxes.forEach(b => canvasEl.appendChild(b)));
 
     UPPER_ROWS.forEach(l=>{
       appendRowLabel("upperLeft", l, "left");
@@ -889,6 +891,7 @@
     });
 
     highlights.forEach(h => canvasEl.appendChild(h.label));
+    balconyHighlights.forEach(h => canvasEl.appendChild(h.label));
 
     renderGroups();
     renderStats();
@@ -969,9 +972,19 @@
       });
     });
 
+    return highlightsFromSegmentMap(bySectionClass, k=>groupById(k.split("|")[1]));
+  }
+
+  // Shared by renderClassHighlights and renderBalconyHighlights: turns a
+  // Map of key -> row-segments (each segment already carries its own
+  // x1/x2/y1/y2/rowOrder/seats) into the actual box+label pairs — clustering
+  // by physically-consecutive rowOrder, drawing one staircase polygon per
+  // cluster, and one big bold label centered on the class's overall
+  // selection within that map entry.
+  function highlightsFromSegmentMap(bySectionClass, resolveGroup){
     const out = [];
     bySectionClass.forEach((segments, key)=>{
-      const g = groupById(key.split("|")[1]);
+      const g = resolveGroup(key);
       if(!g) return;
       const allSeats = segments.flatMap(s=>s.seats);
       if(allSeats.length<3) return; // not worth a highlight for 1-2 seats
@@ -999,6 +1012,53 @@
       out.push({boxes, label});
     });
     return out;
+  }
+
+  // Same idea as renderClassHighlights, but for the balconies — they aren't
+  // in SEAT_SECTIONS and their seats aren't arranged as separate row objects
+  // (balconyRow builds one flat array for the whole 3-column x 17-row grid),
+  // so rows have to be reconstructed here by bucketing seats that share a y
+  // before the same clustering logic can apply.
+  function renderBalconyHighlights(){
+    const bySectionClass = new Map(); // "sectionId|groupId" -> segments[]
+    ["balL","balR"].forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
+      const sec = state.sections[key];
+      const rowsByY = new Map(); // rounded y -> seats[]
+      sec.rows[0].seats.forEach(seat=>{
+        const y = Math.round(seat.y);
+        if(!rowsByY.has(y)) rowsByY.set(y, []);
+        rowsByY.get(y).push(seat);
+      });
+      const ys = [...rowsByY.keys()].sort((a,b)=>a-b);
+      const halfPitch = ys.length>1 ? (ys[1]-ys[0])/2 : 7;
+      ys.forEach((y, rowOrder)=>{
+        const rowSeats = rowsByY.get(y).slice().sort((a,b)=>a.x-b.x);
+        let run = [], runGroup = null;
+        const flush = ()=>{
+          if(run.length && runGroup){
+            const k = sec.id+"|"+runGroup;
+            if(!bySectionClass.has(k)) bySectionClass.set(k, []);
+            const xs = run.map(s=>s.x);
+            bySectionClass.get(k).push({
+              rowOrder,
+              x1: Math.min(...xs)-9, x2: Math.max(...xs)+9,
+              y1: y-halfPitch, y2: y+halfPitch,
+              seats: run
+            });
+          }
+          run = []; runGroup = null;
+        };
+        rowSeats.forEach(seat=>{
+          if(seat.role==="teacher" || !seat.groupId){ flush(); return; }
+          if(runGroup && seat.groupId!==runGroup) flush();
+          runGroup = seat.groupId;
+          run.push(seat);
+        });
+        flush();
+      });
+    });
+    return highlightsFromSegmentMap(bySectionClass, k=>groupById(k.split("|")[1]));
   }
 
   // Traces the outline of a vertical stack of rectangles (touching edges,

@@ -71,6 +71,22 @@
   #aiBar .calib-label{font-weight:700;color:#5a3ea6;white-space:nowrap;}
   #aiBar .calib-hint{color:#5a3ea6;white-space:nowrap;}
   #aiBar input[type=text]{flex:1;min-width:280px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;}
+
+  /* ---------- Preset Classes ---------- */
+  #presetToggleBtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  #presetBar{display:none;flex-direction:column;gap:8px;padding:10px 14px;background:#e9f7ee;border-bottom:1px solid #b9e3c6;font-size:12.5px;}
+  #presetBar.show{display:flex;}
+  #presetYearGroups{display:flex;gap:10px;flex-wrap:wrap;}
+  .preset-year-card{background:#fff;border:1px solid #b9e3c6;border-radius:8px;padding:8px 10px;min-width:120px;}
+  .preset-year-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px;font-weight:700;color:#1a6b39;}
+  .preset-year-head button{border:none;background:#d8f0e0;color:#1a6b39;font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:5px;cursor:pointer;}
+  .preset-year-head button:hover{background:#c3e8d0;}
+  .preset-class-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);padding:2px 0;cursor:pointer;white-space:nowrap;}
+  .preset-class-row input{margin:0;}
+  .preset-class-row .count{color:var(--muted);font-size:11px;}
+  .preset-class-row.unavailable{color:#b7bfcc;text-decoration:line-through;cursor:default;}
+  .preset-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  #presetStatus{color:#1a6b39;}
   #canvas.calibrating .seat.abs:hover{opacity:1;}
   .modebar.calib-disabled button{opacity:.35;pointer-events:none;}
   .spacer{flex:1;}
@@ -225,6 +241,7 @@
     <button class="btn danger" id="clearTeacherBtn" style="display:none;">Clear Teacher Seats</button>
     <button class="btn" id="calibrateBtn">📐 Calibrate</button>
     <button class="btn" id="aiToggleBtn">✨ AI Generate</button>
+    <button class="btn" id="presetToggleBtn">📋 Preset Classes</button>
     <div class="spacer"></div>
     <div id="stats"></div>
   </div>
@@ -234,6 +251,16 @@
     <input type="text" id="aiPromptInput" placeholder='e.g. "Assign row F in the center block to Year 9" or "Ban seats 1-3 in row V, lower left"'>
     <button class="btn primary" id="aiGenerateBtn">Generate</button>
     <span id="aiStatus" class="calib-hint"></span>
+  </div>
+  <div id="presetBar">
+    <div id="presetYearGroups"></div>
+    <div class="preset-actions">
+      <button class="btn primary" id="createSelectedClassesBtn">+ Create Ticked Classes</button>
+      <span class="calib-label" style="margin-left:6px;">Auto-arrange every class with a head count:</span>
+      <button class="btn" id="strategyRowsBtn" title="Front to back, filling left → center → right within each row — a class can end up split across the side wedges.">↕ Front-to-Back (Rows)</button>
+      <button class="btn" id="strategyBlocksBtn" title="Front to back, one whole section at a time (Center fully, then Left fully, then Right fully) — far less likely to split a class across both side wedges.">↕ Front-to-Back (No Split Sides)</button>
+    </div>
+    <span id="presetStatus" class="calib-hint"></span>
   </div>
   <div id="calibBar">
     <span class="calib-label">Calibration Mode:</span>
@@ -628,6 +655,56 @@
   const LOWER_ROWS = ["M","N","O","P","Q","R","S","T","U","V"];
   const REAR_ROWS  = ["AB","AC","AD","AE"];
   const SEAT_SECTIONS = ["upperLeft","upperCenter","upperRight","lowerLeft","lowerCenter","lowerRight","rearLeft","rearCenter","rearRight"];
+
+  // ---------- Preset class head counts ----------
+  // From "Class Head Counts 2026-2027.xlsx" (Louis Wong) — Years 6-10 are
+  // lettered classes (H/J/P/T/C/R/V), Years 11 & 12 share one "Vertical" set
+  // of 9 numbered tutor groups instead. A few Year 8/10 "V" slots don't
+  // exist (marked "/" in the sheet) and are left out entirely below.
+  const PRESET_CLASSES = [
+    {yearLevel:"Year 6",  name:"6H",  count:29},
+    {yearLevel:"Year 6",  name:"6J",  count:29},
+    {yearLevel:"Year 6",  name:"6P",  count:28},
+    {yearLevel:"Year 6",  name:"6T",  count:27},
+    {yearLevel:"Year 6",  name:"6C",  count:29},
+    {yearLevel:"Year 6",  name:"6R",  count:29},
+    {yearLevel:"Year 6",  name:"6V",  count:28},
+    {yearLevel:"Year 7",  name:"7H",  count:26},
+    {yearLevel:"Year 7",  name:"7J",  count:26},
+    {yearLevel:"Year 7",  name:"7P",  count:25},
+    {yearLevel:"Year 7",  name:"7T",  count:25},
+    {yearLevel:"Year 7",  name:"7C",  count:24},
+    {yearLevel:"Year 7",  name:"7R",  count:26},
+    {yearLevel:"Year 7",  name:"7V",  count:26},
+    {yearLevel:"Year 8",  name:"8H",  count:29},
+    {yearLevel:"Year 8",  name:"8J",  count:29},
+    {yearLevel:"Year 8",  name:"8P",  count:28},
+    {yearLevel:"Year 8",  name:"8T",  count:29},
+    {yearLevel:"Year 8",  name:"8C",  count:29},
+    {yearLevel:"Year 8",  name:"8R",  count:29},
+    {yearLevel:"Year 9",  name:"9H",  count:28},
+    {yearLevel:"Year 9",  name:"9J",  count:28},
+    {yearLevel:"Year 9",  name:"9P",  count:28},
+    {yearLevel:"Year 9",  name:"9T",  count:25},
+    {yearLevel:"Year 9",  name:"9C",  count:28},
+    {yearLevel:"Year 9",  name:"9R",  count:28},
+    {yearLevel:"Year 9",  name:"9V",  count:28},
+    {yearLevel:"Year 10", name:"10H", count:25},
+    {yearLevel:"Year 10", name:"10J", count:25},
+    {yearLevel:"Year 10", name:"10P", count:26},
+    {yearLevel:"Year 10", name:"10T", count:26},
+    {yearLevel:"Year 10", name:"10C", count:26},
+    {yearLevel:"Year 10", name:"10R", count:25},
+    {yearLevel:"Year 11 & 12", name:"11/12-1", count:30},
+    {yearLevel:"Year 11 & 12", name:"11/12-2", count:29},
+    {yearLevel:"Year 11 & 12", name:"11/12-3", count:27},
+    {yearLevel:"Year 11 & 12", name:"11/12-4", count:27},
+    {yearLevel:"Year 11 & 12", name:"11/12-5", count:28},
+    {yearLevel:"Year 11 & 12", name:"11/12-6", count:27},
+    {yearLevel:"Year 11 & 12", name:"11/12-7", count:29},
+    {yearLevel:"Year 11 & 12", name:"11/12-8", count:29},
+    {yearLevel:"Year 11 & 12", name:"11/12-9", count:29},
+  ];
 
   // ---------- Map view tabs ----------
   // Three named "map variants" of the SAME underlying seat data — hiding a
@@ -2029,6 +2106,173 @@ User instruction: "${userPrompt}"`;
   aiToggleBtn.addEventListener("click", ()=>{
     const showing = aiBar.classList.toggle("show");
     aiToggleBtn.classList.toggle("active", showing);
+  });
+
+  // ---------- Preset Classes ----------
+  const presetToggleBtn = document.getElementById("presetToggleBtn");
+  const presetBar = document.getElementById("presetBar");
+  const presetStatusEl = document.getElementById("presetStatus");
+  presetToggleBtn.addEventListener("click", ()=>{
+    const showing = presetBar.classList.toggle("show");
+    presetToggleBtn.classList.toggle("active", showing);
+  });
+
+  (function renderPresetClasses(){
+    const wrap = document.getElementById("presetYearGroups");
+    const byYear = new Map();
+    PRESET_CLASSES.forEach(c=>{
+      if(!byYear.has(c.yearLevel)) byYear.set(c.yearLevel, []);
+      byYear.get(c.yearLevel).push(c);
+    });
+    byYear.forEach((classes, year)=>{
+      const card = document.createElement("div");
+      card.className = "preset-year-card";
+      const head = document.createElement("div");
+      head.className = "preset-year-head";
+      const title = document.createElement("span");
+      title.textContent = year;
+      const selectAllBtn = document.createElement("button");
+      selectAllBtn.textContent = "Select All";
+      selectAllBtn.type = "button";
+      selectAllBtn.addEventListener("click", ()=>{
+        const boxes = card.querySelectorAll('input[type="checkbox"]');
+        const allChecked = [...boxes].every(b=>b.checked);
+        boxes.forEach(b=>{ b.checked = !allChecked; });
+        selectAllBtn.textContent = allChecked ? "Select All" : "Unselect All";
+      });
+      head.append(title, selectAllBtn);
+      card.appendChild(head);
+      classes.forEach(c=>{
+        const alreadyExists = state.groups.some(g=>g.name.toLowerCase()===c.name.toLowerCase());
+        const row = document.createElement("label");
+        row.className = "preset-class-row" + (alreadyExists ? " unavailable" : "");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.dataset.className = c.name;
+        box.dataset.count = c.count;
+        box.dataset.year = year;
+        if(alreadyExists) box.disabled = true;
+        const label = document.createElement("span");
+        label.textContent = c.name + " ";
+        const countSpan = document.createElement("span");
+        countSpan.className = "count";
+        countSpan.textContent = alreadyExists ? "(already created)" : `(${c.count})`;
+        row.append(box, label, countSpan);
+        card.appendChild(row);
+      });
+      wrap.appendChild(card);
+    });
+  })();
+
+  document.getElementById("createSelectedClassesBtn").addEventListener("click", ()=>{
+    const checked = Array.from(document.querySelectorAll('#presetYearGroups input[type="checkbox"]:checked'));
+    if(!checked.length){ presetStatusEl.textContent = "Tick at least one class first."; return; }
+    let created = 0;
+    checked.forEach(box=>{
+      const name = box.dataset.className;
+      if(state.groups.some(g=>g.name.toLowerCase()===name.toLowerCase())) return; // race-safe re-check
+      const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color: suggestColor(), targetCount: parseInt(box.dataset.count,10)||0};
+      state.groups.push(g);
+      created++;
+      const row = box.closest(".preset-class-row");
+      row.classList.add("unavailable");
+      box.disabled = true;
+      row.querySelector(".count").textContent = "(already created)";
+    });
+    saveState(); renderGroups();
+    presetStatusEl.textContent = created ? `Created ${created} class${created===1?"":"es"}.` : "Those classes already exist.";
+  });
+
+  // Builds one flat front-to-back list of assignable (non-teacher,
+  // non-banned) seats for the currently active map view, in the given
+  // section traversal order. Used by both arrangement strategies below —
+  // they differ only in what order they pass here.
+  function frontToBackSeats(sectionOrder){
+    const out = [];
+    const allRowLabels = [...UPPER_ROWS, ...LOWER_ROWS, ...REAR_ROWS];
+    sectionOrder.forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
+      const sec = state.sections[key];
+      const rowsByOrder = [...sec.rows].sort((a,b)=> allRowLabels.indexOf(a.label) - allRowLabels.indexOf(b.label));
+      rowsByOrder.forEach(row=>{
+        if(isRowHiddenInView(key, row.label)) return;
+        row.seats.forEach(seat=>{
+          if(seat.role==="teacher" || seat.status==="banned") return;
+          out.push(seat);
+        });
+      });
+    });
+    return out;
+  }
+  // Rows: front-to-back, interleaving left→center→right within every single
+  // row — a class can end up split across the two side wedges if its count
+  // doesn't divide evenly.
+  function rowMajorSeatOrder(){
+    const allRowLabels = [...UPPER_ROWS, ...LOWER_ROWS, ...REAR_ROWS];
+    const bucket = new Map(); // rowLabel -> {left:[],center:[],right:[]}
+    [["upperLeft","left"],["upperCenter","center"],["upperRight","right"],
+     ["lowerLeft","left"],["lowerCenter","center"],["lowerRight","right"],
+     ["rearLeft","left"],["rearCenter","center"],["rearRight","right"]].forEach(([key,side])=>{
+      if(isSectionHiddenInView(key)) return;
+      state.sections[key].rows.forEach(row=>{
+        if(isRowHiddenInView(key, row.label)) return;
+        row.seats.forEach(seat=>{
+          if(seat.role==="teacher" || seat.status==="banned") return;
+          if(!bucket.has(row.label)) bucket.set(row.label, {left:[],center:[],right:[]});
+          bucket.get(row.label)[side].push(seat);
+        });
+      });
+    });
+    const out = [];
+    allRowLabels.forEach(label=>{
+      const b = bucket.get(label);
+      if(!b) return;
+      out.push(...b.left, ...b.center, ...b.right);
+    });
+    return out;
+  }
+  // Blocks: Center done completely front-to-back first, then Left completely,
+  // then Right completely — a class only ever spills from Center into a side,
+  // or fills one side outright; it never has seats active in Left AND Right
+  // at the same time the way row-by-row can.
+  function sectionMajorSeatOrder(){
+    return frontToBackSeats(["upperCenter","lowerCenter","rearCenter","upperLeft","lowerLeft","rearLeft","upperRight","lowerRight","rearRight"]);
+  }
+
+  function applyArrangementStrategy(seatOrder, label){
+    const groupsWithTarget = state.groups.filter(g=>(g.targetCount||0)>0);
+    if(!groupsWithTarget.length){
+      presetStatusEl.textContent = "No classes with a student count set — nothing to arrange.";
+      return;
+    }
+    if(!confirm(`${label}: this clears ALL current seat assignments on the visible map and re-seats every class with a student count, from the front, in sidebar order. Continue?`)) return;
+    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
+      if(seat.role!=="teacher"){ seat.groupId=null; seat.occupant=""; }
+    })));
+    let gi=0, filled=0;
+    for(const seat of seatOrder){
+      while(gi<groupsWithTarget.length && filled>=groupsWithTarget[gi].targetCount) { gi++; filled=0; }
+      if(gi>=groupsWithTarget.length) break;
+      seat.groupId = groupsWithTarget[gi].id;
+      filled++;
+    }
+    saveState(); render();
+    // Report actual results (counted from the real data) rather than trusting
+    // loop position — the loop can end exactly on a class's last seat, which
+    // isn't distinguishable from "ran out mid-class" just from gi/filled.
+    const shortfalls = groupsWithTarget.filter(g=>{
+      const seatedCount = allSeatSections().reduce((n,s)=> n + s.rows.reduce((m,r)=> m + r.seats.filter(x=>x.role!=="teacher" && x.groupId===g.id).length, 0), 0);
+      return seatedCount < g.targetCount;
+    });
+    presetStatusEl.textContent = shortfalls.length
+      ? `${label} applied — ran out of visible seats before fully seating: ${shortfalls.map(g=>g.name).join(", ")}.`
+      : `${label} applied — every class with a student count was fully seated.`;
+  }
+  document.getElementById("strategyRowsBtn").addEventListener("click", ()=>{
+    applyArrangementStrategy(rowMajorSeatOrder(), "Front-to-Back (Rows)");
+  });
+  document.getElementById("strategyBlocksBtn").addEventListener("click", ()=>{
+    applyArrangementStrategy(sectionMajorSeatOrder(), "Front-to-Back (No Split Sides)");
   });
 
   document.getElementById("aiGenerateBtn").addEventListener("click", async ()=>{

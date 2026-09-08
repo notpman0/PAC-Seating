@@ -2229,14 +2229,20 @@ User instruction: "${userPrompt}"`;
       if(!b) return;
       out.push(...b.left, ...b.center, ...b.right);
     });
+    // Balconies aren't part of the main floor's row sequence (balconyRow
+    // builds one unlabeled block per side, not named rows like everywhere
+    // else), so they're appended after the whole floor rather than
+    // interleaved mid-row.
+    out.push(...frontToBackSeats(["balL","balR"]));
     return out;
   }
-  // Blocks: Center done completely front-to-back first, then Left completely,
-  // then Right completely — a class only ever spills from Center into a side,
-  // or fills one side outright; it never has seats active in Left AND Right
-  // at the same time the way row-by-row can.
+  // Blocks: Center done completely front-to-back first, then the whole Left
+  // side (floor + its balcony) completely, then the whole Right side (floor
+  // + its balcony) completely — a class only ever spills from Center into a
+  // side, or fills one side outright; it never has seats active in Left AND
+  // Right at the same time the way row-by-row can.
   function sectionMajorSeatOrder(){
-    return frontToBackSeats(["upperCenter","lowerCenter","rearCenter","upperLeft","lowerLeft","rearLeft","upperRight","lowerRight","rearRight"]);
+    return frontToBackSeats(["upperCenter","lowerCenter","rearCenter","upperLeft","lowerLeft","rearLeft","balL","upperRight","lowerRight","rearRight","balR"]);
   }
 
   function applyArrangementStrategy(seatOrder, label){

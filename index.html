@@ -642,6 +642,29 @@
   const tipEl = document.getElementById("tip");
   const canvasEl = document.getElementById("canvas");
 
+  // Drag-paint for the class list's "include in auto-arrange" checkboxes —
+  // same idea as the map's own drag-select (mousedown, drag across several
+  // targets, release), just applied to checkboxes instead of seats: drag
+  // down the list to tick/untick a run of classes in one gesture instead of
+  // clicking each one individually. Delegated on `document` (not
+  // groupListEl directly) since the checkboxes are recreated by innerHTML
+  // on every renderGroups() call.
+  let checkDragActive = false, checkDragValue = null;
+  document.addEventListener("pointerdown", (e)=>{
+    const cb = e.target.closest && e.target.closest(".group-arrange-check");
+    if(!cb) return;
+    checkDragActive = true;
+    checkDragValue = !cb.checked; // the state the native click is about to give it
+  });
+  document.addEventListener("pointerup", ()=>{ checkDragActive = false; checkDragValue = null; });
+  document.addEventListener("pointerover", (e)=>{
+    if(!checkDragActive || checkDragValue===null) return;
+    const cb = e.target.closest && e.target.closest(".group-arrange-check");
+    if(!cb || cb.checked === checkDragValue) return;
+    cb.checked = checkDragValue;
+    cb.dispatchEvent(new Event("change", {bubbles:true}));
+  });
+
   function showTip(msg){
     tipEl.textContent = msg;
     tipEl.classList.add("show");
@@ -1410,7 +1433,7 @@
       const target = g.targetCount || 0;
       rowEl.innerHTML = `
         <div class="group-row-top">
-          <input type="checkbox" class="group-arrange-check" ${g.arrangeChecked!==false ? "checked" : ""} title="Include this class when auto-arranging">
+          <input type="checkbox" class="group-arrange-check" ${g.arrangeChecked!==false ? "checked" : ""} title="Include this class when auto-arranging — click and drag down through several to tick/untick them all at once">
           <span class="swatch"></span>
           <input type="text" class="group-name" value="${escapeAttr(g.name)}">
           <button class="group-del">✕</button>

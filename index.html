@@ -1708,6 +1708,13 @@
     zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
     venueEl.style.zoom = zoom * BASE_ZOOM_SCALE;
     zoomLabelEl.value = Math.round(zoom*100)+"%";
+    // Balcony highlight boxes are computed from LIVE measured seat positions
+    // (see renderBalconyHighlights), unlike the rest of the map which uses
+    // fixed logical-unit math independent of zoom — so changing zoom without
+    // a re-render leaves those boxes stale relative to the newly-resized
+    // seats. Re-render whenever zoom changes (manual +/-, typed value, or
+    // auto-fit on window resize) so they stay in sync.
+    if(typeof render === "function") render();
   }
   document.getElementById("zoomIn").addEventListener("click", ()=>{ zoom += 0.1; applyZoom(); });
   document.getElementById("zoomOut").addEventListener("click", ()=>{ zoom -= 0.1; applyZoom(); });
@@ -1753,7 +1760,15 @@
     zoom = Math.min(1, availW / (content.w * BASE_ZOOM_SCALE), availH / (content.h * BASE_ZOOM_SCALE));
     applyZoom();
   }
-  window.addEventListener("resize", fitZoomToScreen);
+  // Debounced — a live window-drag can fire this dozens of times a second,
+  // and fitZoomToScreen -> applyZoom -> render() now rebuilds the whole
+  // seating chart each time (see applyZoom), so firing on every raw event
+  // would be janky. Waits for resizing to actually stop.
+  let resizeDebounce = null;
+  window.addEventListener("resize", ()=>{
+    clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(fitZoomToScreen, 120);
+  });
 
   document.getElementById("addGroupBtn").addEventListener("click", ()=>{
     const name = prompt("Class name (e.g. Year 13, 10A):", "New Class");

@@ -78,9 +78,12 @@
   #presetBar.show{display:flex;}
   #presetYearGroups{display:flex;gap:10px;flex-wrap:wrap;}
   .preset-year-card{background:#fff;border:1px solid #b9e3c6;border-radius:8px;padding:8px 10px;min-width:120px;}
-  .preset-year-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px;font-weight:700;color:#1a6b39;}
+  .preset-year-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px;font-weight:700;color:#1a6b39;}
   .preset-year-head button{border:none;background:#d8f0e0;color:#1a6b39;font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:5px;cursor:pointer;}
   .preset-year-head button:hover{background:#c3e8d0;}
+  .preset-year-head span:first-child{flex:1;}
+  .preset-year-color{width:22px;height:22px;padding:0;border:1px solid #b9e3c6;border-radius:5px;cursor:pointer;background:none;flex-shrink:0;}
+  .preset-color-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.15);}
   .preset-class-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);padding:2px 0;cursor:pointer;white-space:nowrap;}
   .preset-class-row input{margin:0;}
   .preset-class-row .count{color:var(--muted);font-size:11px;}
@@ -111,6 +114,13 @@
   .group-del{opacity:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;}
   .group-row:hover .group-del{opacity:1;}
   #addGroupBtn{width:100%;margin-top:6px;}
+  .class-bulk-actions{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
+  .class-bulk-actions .btn{width:100%;}
+  #deleteModeBtn.active{background:var(--danger);border-color:var(--danger);color:#fff;}
+  .group-delete-check{display:none;margin:0;cursor:pointer;flex-shrink:0;}
+  #groupList.delete-mode .group-delete-check{display:inline-block;}
+  #groupList.delete-mode .group-arrange-check{display:none;}
+  .group-row.marked-delete{background:#fdeaea;border-color:#f3c9c6;}
   #legendHint{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5;padding:10px;background:var(--bg);border-radius:8px;}
   .legend-key{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-top:6px;}
   .legend-key .seat{width:14px;height:14px;font-size:0;}
@@ -285,6 +295,10 @@
     <div id="sidebar">
       <h2>Classes</h2>
       <div id="groupList"></div>
+      <div class="class-bulk-actions">
+        <button class="btn" id="deleteModeBtn" title="Click or drag across several classes to select them, then delete them all at once">🗑 Select to Delete</button>
+        <button class="btn danger" id="deleteSelectedBtn" style="display:none;">Delete Selected (<span id="deleteSelCount">0</span>)</button>
+      </div>
       <button class="btn" id="addGroupBtn">+ Add Class</button>
       <div id="legendHint"></div>
       <div class="legend-key"><div class="seat teacher"></div> Teacher seat</div>
@@ -656,7 +670,15 @@
   // since it's not in that exclusion list). Native text-selection is
   // disabled on .group-row (see CSS) so dragging across the class name
   // doesn't highlight text instead of painting checkboxes.
+  // classDeleteMode swaps which checkbox the SAME drag-paint mechanism
+  // below targets — "include in auto-arrange" normally, "select for
+  // deletion" while bulk-delete mode is on (see deleteModeBtn). Only one of
+  // the two checkboxes is ever visible at a time (see CSS), so there's no
+  // ambiguity about which one a drag is painting.
+  let classDeleteMode = false;
+  let classDeleteSelection = new Set(); // group ids marked for bulk delete
   let checkDragActive = false, checkDragValue = null, checkDragRow = null;
+  function activeCheckboxClass(){ return classDeleteMode ? "group-delete-check" : "group-arrange-check"; }
   function markDragTarget(row){
     if(checkDragRow===row) return;
     if(checkDragRow) checkDragRow.classList.remove("drag-target");
@@ -667,7 +689,7 @@
     const row = e.target.closest && e.target.closest(".group-row");
     if(!row) return;
     if(e.target.closest(".group-name, .group-target, .group-del, .swatch")) return; // let those keep their normal click behavior
-    const cb = row.querySelector(".group-arrange-check");
+    const cb = row.querySelector("."+activeCheckboxClass());
     if(!cb) return;
     checkDragActive = true;
     checkDragValue = !cb.checked; // the state this row is about to switch to
@@ -689,10 +711,41 @@
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const row = el && el.closest && el.closest(".group-row");
     markDragTarget(row || null);
-    const cb = row && row.querySelector(".group-arrange-check");
+    const cb = row && row.querySelector("."+activeCheckboxClass());
     if(!cb || cb.checked === checkDragValue) return;
     cb.checked = checkDragValue;
     cb.dispatchEvent(new Event("change", {bubbles:true}));
+  });
+
+  const deleteModeBtn = document.getElementById("deleteModeBtn");
+  const deleteSelectedBtn = document.getElementById("deleteSelectedBtn");
+  const deleteSelCountEl = document.getElementById("deleteSelCount");
+  function updateDeleteSelectedUI(){
+    deleteSelectedBtn.style.display = classDeleteSelection.size ? "" : "none";
+    deleteSelCountEl.textContent = classDeleteSelection.size;
+  }
+  deleteModeBtn.addEventListener("click", ()=>{
+    classDeleteMode = !classDeleteMode;
+    deleteModeBtn.classList.toggle("active", classDeleteMode);
+    deleteModeBtn.textContent = classDeleteMode ? "✕ Cancel Selecting" : "🗑 Select to Delete";
+    if(!classDeleteMode){ classDeleteSelection.clear(); }
+    renderGroups();
+    updateDeleteSelectedUI();
+  });
+  deleteSelectedBtn.addEventListener("click", ()=>{
+    if(!classDeleteSelection.size) return;
+    const names = state.groups.filter(g=>classDeleteSelection.has(g.id)).map(g=>g.name);
+    if(!confirm(`Delete ${classDeleteSelection.size} class(es): ${names.join(", ")}? Seats assigned to them will be unassigned.`)) return;
+    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
+      if(seat.role!=="teacher" && classDeleteSelection.has(seat.groupId)) seat.groupId=null;
+    })));
+    state.groups = state.groups.filter(g=>!classDeleteSelection.has(g.id));
+    classDeleteSelection.clear();
+    classDeleteMode = false;
+    deleteModeBtn.classList.remove("active");
+    deleteModeBtn.textContent = "🗑 Select to Delete";
+    saveState(); render();
+    updateDeleteSelectedUI();
   });
 
   function showTip(msg){
@@ -774,6 +827,29 @@
     "Year 10": 30,        // orange
     "Year 11 & 12": 185,  // teal
   };
+  // User-adjustable overrides (see the color swatch on each year card in the
+  // Preset Classes panel) — persisted separately from the main seating
+  // state since it's a display preference, not seating data.
+  const YEAR_COLOR_KEY = "vsa-year-colors";
+  let yearColorOverrides = {};
+  try { yearColorOverrides = JSON.parse(localStorage.getItem(YEAR_COLOR_KEY) || "{}"); } catch(e){ yearColorOverrides = {}; }
+  function saveYearColorOverrides(){ localStorage.setItem(YEAR_COLOR_KEY, JSON.stringify(yearColorOverrides)); }
+  function yearHue(yearLevel){
+    if(yearColorOverrides[yearLevel]) return hexToHue(yearColorOverrides[yearLevel]);
+    return PRESET_YEAR_HUES[yearLevel] ?? 0;
+  }
+  function hexToHue(hex){
+    hex = hex.replace("#","");
+    const r=parseInt(hex.substring(0,2),16)/255, g=parseInt(hex.substring(2,4),16)/255, b=parseInt(hex.substring(4,6),16)/255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+    if(d===0) return 0;
+    let h;
+    if(max===r) h=((g-b)/d)%6;
+    else if(max===g) h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60;
+    return h<0 ? h+360 : h;
+  }
   function hslToHex(h, s, l){
     s/=100; l/=100;
     const k = n => (n + h/30) % 12;
@@ -785,10 +861,25 @@
   // indexInYear/countInYear place this specific class along a light->dark
   // ramp within its year's hue (first class lightest, last class darkest).
   function presetClassColor(yearLevel, indexInYear, countInYear){
-    const hue = PRESET_YEAR_HUES[yearLevel] ?? 0;
+    const hue = yearHue(yearLevel);
     const maxL = 72, minL = 32;
     const l = countInYear>1 ? maxL - (maxL-minL)*(indexInYear/(countInYear-1)) : (maxL+minL)/2;
     return hslToHex(hue, 62, l);
+  }
+  // Recomputes every already-created class's color for one year level, using
+  // the (possibly just-changed) current hue — so adjusting a year's color
+  // updates classes you already made from it, not just future ones. Only
+  // touches groups stamped with presetYear at creation time (see
+  // createSelectedClassesBtn); manually-added classes are never touched.
+  function recolorYear(yearLevel){
+    let changed = false;
+    state.groups.forEach(g=>{
+      if(g.presetYear===yearLevel && typeof g.presetIndexInYear==="number"){
+        g.color = presetClassColor(yearLevel, g.presetIndexInYear, g.presetCountInYear);
+        changed = true;
+      }
+    });
+    if(changed){ saveState(); render(); }
   }
 
   // ---------- Map view tabs ----------
@@ -1606,14 +1697,17 @@
 
   function renderGroups(){
     groupListEl.innerHTML = "";
+    groupListEl.classList.toggle("delete-mode", classDeleteMode);
     state.groups.forEach(g=>{
       const rowEl = document.createElement("div");
-      rowEl.className = "group-row";
+      rowEl.className = "group-row" + (classDeleteSelection.has(g.id) ? " marked-delete" : "");
+      rowEl.dataset.groupId = g.id;
       const count = allSeatSections().reduce((n,s)=> n + s.rows.reduce((m,r)=> m + r.seats.filter(x=>x.role!=="teacher" && x.groupId===g.id).length, 0), 0);
       const target = g.targetCount || 0;
       rowEl.innerHTML = `
         <div class="group-row-top">
           <input type="checkbox" class="group-arrange-check" ${g.arrangeChecked!==false ? "checked" : ""} title="Include this class when auto-arranging — click and drag down through several to tick/untick them all at once">
+          <input type="checkbox" class="group-delete-check" ${classDeleteSelection.has(g.id) ? "checked" : ""} title="Select for deletion — click and drag down through several to select them all at once">
           <span class="swatch"></span>
           <input type="text" class="group-name" value="${escapeAttr(g.name)}">
           <button class="group-del">✕</button>
@@ -1629,6 +1723,12 @@
       rowEl.querySelector(".group-arrange-check").addEventListener("change", e=>{
         g.arrangeChecked = e.target.checked;
         saveState();
+      });
+      rowEl.querySelector(".group-delete-check").addEventListener("click", e=>e.stopPropagation());
+      rowEl.querySelector(".group-delete-check").addEventListener("change", e=>{
+        if(e.target.checked) classDeleteSelection.add(g.id); else classDeleteSelection.delete(g.id);
+        rowEl.classList.toggle("marked-delete", e.target.checked);
+        updateDeleteSelectedUI();
       });
       rowEl.querySelector(".swatch").style.background = g.color;
       rowEl.querySelector(".swatch").addEventListener("click",(e)=>{ e.stopPropagation(); openColorDlg(g.id, g.color); });
@@ -1648,7 +1748,9 @@
         if(confirm(`Delete class "${g.name}"? Seats assigned to it will be unassigned.`)){
           allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{ if(seat.role!=="teacher" && seat.groupId===g.id) seat.groupId=null; })));
           state.groups = state.groups.filter(x=>x.id!==g.id);
+          classDeleteSelection.delete(g.id);
           saveState(); render();
+          updateDeleteSelectedUI();
         }
       });
       groupListEl.appendChild(rowEl);
@@ -2356,6 +2458,32 @@ User instruction: "${userPrompt}"`;
       head.className = "preset-year-head";
       const title = document.createElement("span");
       title.textContent = year;
+
+      // Adjustable year color — a real color picker, not just a swatch, so
+      // the scheme is both visible up front and directly editable. Prefilled
+      // with the year's current representative shade (its midpoint
+      // lightness); picking a new color re-derives the hue from it and
+      // reapplies the same light->dark ramp, so the gradient behavior is
+      // unchanged, only which hue it ramps through.
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      colorInput.className = "preset-year-color";
+      colorInput.title = `${year} default color — drag classes' shades light-to-dark from this`;
+      colorInput.value = presetClassColor(year, (classes.length-1)/2, classes.length);
+      const dots = []; // filled below, refreshed when color changes
+      function refreshDots(){
+        classes.forEach((c,i)=>{
+          const dot = dots[i];
+          if(dot) dot.style.background = presetClassColor(year, i, classes.length);
+        });
+      }
+      colorInput.addEventListener("input", ()=>{
+        yearColorOverrides[year] = colorInput.value;
+        saveYearColorOverrides();
+        refreshDots();
+        recolorYear(year); // live-updates any classes already created from this year
+      });
+
       const selectAllBtn = document.createElement("button");
       selectAllBtn.textContent = "Select All";
       selectAllBtn.type = "button";
@@ -2365,12 +2493,16 @@ User instruction: "${userPrompt}"`;
         boxes.forEach(b=>{ b.checked = !allChecked; });
         selectAllBtn.textContent = allChecked ? "Select All" : "Unselect All";
       });
-      head.append(title, selectAllBtn);
+      head.append(title, colorInput, selectAllBtn);
       card.appendChild(head);
-      classes.forEach(c=>{
+      classes.forEach((c,i)=>{
         const alreadyExists = state.groups.some(g=>g.name.toLowerCase()===c.name.toLowerCase());
         const row = document.createElement("label");
         row.className = "preset-class-row" + (alreadyExists ? " unavailable" : "");
+        const dot = document.createElement("span");
+        dot.className = "preset-color-dot";
+        dot.style.background = presetClassColor(year, i, classes.length);
+        dots.push(dot);
         const box = document.createElement("input");
         box.type = "checkbox";
         box.dataset.className = c.name;
@@ -2382,7 +2514,7 @@ User instruction: "${userPrompt}"`;
         const countSpan = document.createElement("span");
         countSpan.className = "count";
         countSpan.textContent = alreadyExists ? "(already created)" : `(${c.count})`;
-        row.append(box, label, countSpan);
+        row.append(box, dot, label, countSpan);
         card.appendChild(row);
       });
       wrap.appendChild(card);
@@ -2399,8 +2531,13 @@ User instruction: "${userPrompt}"`;
       const year = box.dataset.year;
       const yearClasses = PRESET_CLASSES.filter(c=>c.yearLevel===year);
       const indexInYear = yearClasses.findIndex(c=>c.name===name);
-      const color = presetClassColor(year, indexInYear<0?0:indexInYear, yearClasses.length);
-      const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color, targetCount: parseInt(box.dataset.count,10)||0};
+      const indexInYearSafe = indexInYear<0?0:indexInYear;
+      const color = presetClassColor(year, indexInYearSafe, yearClasses.length);
+      // presetYear/presetIndexInYear/presetCountInYear let recolorYear()
+      // find and re-derive this class's color later if the year's color is
+      // adjusted, without touching manually-added classes.
+      const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color, targetCount: parseInt(box.dataset.count,10)||0,
+        presetYear: year, presetIndexInYear: indexInYearSafe, presetCountInYear: yearClasses.length};
       state.groups.push(g);
       created++;
       const row = box.closest(".preset-class-row");

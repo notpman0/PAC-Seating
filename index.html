@@ -298,6 +298,7 @@
       <div class="class-bulk-actions">
         <button class="btn" id="deleteModeBtn" title="Click or drag across several classes to select them, then delete them all at once">🗑 Select to Delete</button>
         <button class="btn danger" id="deleteSelectedBtn" style="display:none;">Delete Selected (<span id="deleteSelCount">0</span>)</button>
+        <button class="btn danger" id="deleteAllClassesBtn" title="Delete every class in the list">🗑 Delete All Classes</button>
       </div>
       <button class="btn" id="addGroupBtn">+ Add Class</button>
       <div id="legendHint"></div>
@@ -740,6 +741,20 @@
       if(seat.role!=="teacher" && classDeleteSelection.has(seat.groupId)) seat.groupId=null;
     })));
     state.groups = state.groups.filter(g=>!classDeleteSelection.has(g.id));
+    classDeleteSelection.clear();
+    classDeleteMode = false;
+    deleteModeBtn.classList.remove("active");
+    deleteModeBtn.textContent = "🗑 Select to Delete";
+    saveState(); render();
+    updateDeleteSelectedUI();
+  });
+  document.getElementById("deleteAllClassesBtn").addEventListener("click", ()=>{
+    if(!state.groups.length){ showTip("No classes to delete"); return; }
+    if(!confirm(`Delete all ${state.groups.length} class(es)? Every seat assignment will be cleared. This can't be undone.`)) return;
+    allSeatSections().forEach(s=>s.rows.forEach(r=>r.seats.forEach(seat=>{
+      if(seat.role!=="teacher"){ seat.groupId=null; seat.occupant=""; }
+    })));
+    state.groups = [];
     classDeleteSelection.clear();
     classDeleteMode = false;
     deleteModeBtn.classList.remove("active");

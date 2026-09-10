@@ -760,6 +760,37 @@
     {yearLevel:"Year 11 & 12", name:"11/12-9", count:29},
   ];
 
+  // Default color scheme for preset classes: one hue per year level, shading
+  // from light to dark across that year's own classes (in PRESET_CLASSES
+  // order) so a whole year level reads as one color family at a glance,
+  // while still being able to tell its classes apart. Hues spaced around
+  // the wheel for distinctness between year levels; yellow avoided (reads
+  // too pale/low-contrast as a seat fill).
+  const PRESET_YEAR_HUES = {
+    "Year 6": 0,          // red
+    "Year 7": 140,        // green
+    "Year 8": 220,        // blue
+    "Year 9": 280,        // purple
+    "Year 10": 30,        // orange
+    "Year 11 & 12": 185,  // teal
+  };
+  function hslToHex(h, s, l){
+    s/=100; l/=100;
+    const k = n => (n + h/30) % 12;
+    const a = s * Math.min(l, 1-l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n)-3, Math.min(9-k(n), 1)));
+    const toHex = x => Math.round(255*x).toString(16).padStart(2,"0");
+    return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+  }
+  // indexInYear/countInYear place this specific class along a light->dark
+  // ramp within its year's hue (first class lightest, last class darkest).
+  function presetClassColor(yearLevel, indexInYear, countInYear){
+    const hue = PRESET_YEAR_HUES[yearLevel] ?? 0;
+    const maxL = 72, minL = 32;
+    const l = countInYear>1 ? maxL - (maxL-minL)*(indexInYear/(countInYear-1)) : (maxL+minL)/2;
+    return hslToHex(hue, 62, l);
+  }
+
   // ---------- Map view tabs ----------
   // Three named "map variants" of the SAME underlying seat data — hiding a
   // row or a whole section is purely a display/interaction filter (nothing
@@ -2365,7 +2396,11 @@ User instruction: "${userPrompt}"`;
     checked.forEach(box=>{
       const name = box.dataset.className;
       if(state.groups.some(g=>g.name.toLowerCase()===name.toLowerCase())) return; // race-safe re-check
-      const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color: suggestColor(), targetCount: parseInt(box.dataset.count,10)||0};
+      const year = box.dataset.year;
+      const yearClasses = PRESET_CLASSES.filter(c=>c.yearLevel===year);
+      const indexInYear = yearClasses.findIndex(c=>c.name===name);
+      const color = presetClassColor(year, indexInYear<0?0:indexInYear, yearClasses.length);
+      const g = {id:"grp-"+Math.random().toString(36).slice(2,8), name, color, targetCount: parseInt(box.dataset.count,10)||0};
       state.groups.push(g);
       created++;
       const row = box.closest(".preset-class-row");

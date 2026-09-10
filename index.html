@@ -862,9 +862,15 @@
   // ramp within its year's hue (first class lightest, last class darkest).
   function presetClassColor(yearLevel, indexInYear, countInYear){
     const hue = yearHue(yearLevel);
-    const maxL = 72, minL = 32;
+    // Widened from 72/32 (a 40pt spread — adjacent classes within a large
+    // year, like 9 vertical tutor groups, were only ~5pt apart and read as
+    // nearly the same color) to a 60pt spread, plus a saturation boost, so
+    // classes within one year stay visibly distinct instead of blending
+    // together. Capped at 78 (not higher) since assigned seats show white
+    // text — a paler background than that starts hurting readability.
+    const maxL = 78, minL = 18;
     const l = countInYear>1 ? maxL - (maxL-minL)*(indexInYear/(countInYear-1)) : (maxL+minL)/2;
-    return hslToHex(hue, 62, l);
+    return hslToHex(hue, 68, l);
   }
   // Recomputes every already-created class's color for one year level, using
   // the (possibly just-changed) current hue — so adjusting a year's color

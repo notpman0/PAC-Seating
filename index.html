@@ -876,15 +876,20 @@
   // indexInYear/countInYear place this specific class along a light->dark
   // ramp within its year's hue (first class lightest, last class darkest).
   function presetClassColor(yearLevel, indexInYear, countInYear){
-    const hue = yearHue(yearLevel);
-    // Pushed further still (was 78/18 @ 68% sat, before that 72/32) — still
-    // not enough contrast within a year, especially for large years like the
-    // 9 vertical tutor groups. Now 82/10 @ 82% sat: a much wider, richer
-    // spread. The lightest shade (82) is right at the edge of where white
-    // seat-number text stays legible — don't push it higher.
-    const maxL = 82, minL = 10;
-    const l = countInYear>1 ? maxL - (maxL-minL)*(indexInYear/(countInYear-1)) : (maxL+minL)/2;
-    return hslToHex(hue, 82, l);
+    const baseHue = yearHue(yearLevel);
+    // A pure lightness gradient reads as "blended" between NEIGHBORS no
+    // matter how wide the overall range is — perceived contrast comes from
+    // the step size between adjacent classes, not the distance between the
+    // two endpoints. So hue sweeps a little across the ramp too (±14° off
+    // the year's base hue), meaning each step changes in two perceptual
+    // dimensions at once instead of one continuous axis — while staying
+    // inside a narrow enough band that the year still reads as one family.
+    const maxL = 86, minL = 8;
+    const t = countInYear>1 ? indexInYear/(countInYear-1) : 0.5;
+    const l = maxL - (maxL-minL)*t;
+    const hueSweep = 28;
+    const hue = (baseHue - hueSweep/2 + hueSweep*t + 360) % 360;
+    return hslToHex(hue, 88, l);
   }
   // Recomputes every already-created class's color for one year level, using
   // the (possibly just-changed) current hue — so adjusting a year's color

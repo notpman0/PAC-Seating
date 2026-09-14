@@ -3101,6 +3101,14 @@ User instruction: "${userPrompt}"`;
   });
   document.getElementById("slidesPickBtn").addEventListener("click", async ()=>{
     const statusEl = document.getElementById("slidesExportStatus");
+    const dlg = document.getElementById("slidesExportDlg");
+    // <dialog>.showModal() puts this dialog in the browser's "top layer",
+    // which renders above EVERY other element on the page — including the
+    // Picker's own popup — regardless of z-index. Close it (a plain close,
+    // not a form submission) while the Picker is open so its file tiles are
+    // actually clickable, then reopen it with the same state once the
+    // Picker resolves either way.
+    dlg.close();
     try{
       await ensurePicker();
       const doc = await openSlidesPicker();
@@ -3110,6 +3118,8 @@ User instruction: "${userPrompt}"`;
       }
     } catch(err){
       statusEl.textContent = "Picker error: "+err.message;
+    } finally {
+      dlg.showModal();
     }
   });
   document.getElementById("slidesExportCancel").addEventListener("click", ()=>{

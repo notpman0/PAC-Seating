@@ -2817,7 +2817,9 @@ User instruction: "${userPrompt}"`;
     const scale = Math.min(availW/1000, availH/LOGICAL_H);
     const contentW = 1000*scale, contentH = LOGICAL_H*scale;
     const offsetX = (pageWidthEmu-contentW)/2, offsetY = (pageHeightEmu-contentH)/2;
-    return (x,y,w,h)=> ({ x: offsetX+x*scale, y: offsetY+y*scale, w: Math.max(w*scale,1), h: Math.max(h*scale,1) });
+    const fn = (x,y,w,h)=> ({ x: offsetX+x*scale, y: offsetY+y*scale, w: Math.max(w*scale,1), h: Math.max(h*scale,1) });
+    fn.scale = scale; // exposed so text can be sized proportionally too — see shapesToSlidesRequests
+    return fn;
   }
 
   // Gathers every visible element (respecting the current view tab, same
@@ -2953,11 +2955,19 @@ User instruction: "${userPrompt}"`;
       }
       if(s.text){
         requests.push({ insertText: { objectId, text: s.text } });
+        // s.fontSize is in the SAME logical units as x/y/w/h (e.g. 7 = about
+        // half a seat's 14-unit diameter, sized to fit a 1-2 digit number),
+        // not literal points — it has to go through the same scale factor
+        // as the shape geometry, or a page whose real size differs from
+        // what these numbers were tuned for gets tiny shapes with full-size
+        // fixed-point text overflowing across neighbors (the exact bug
+        // reported from the first live export). 12700 EMU = 1pt.
+        const fontSizePt = Math.max(4, Math.min(96, ((s.fontSize||9) * transform.scale) / 12700));
         requests.push({
           updateTextStyle: {
             objectId,
             textRange: {type:"ALL"},
-            style: { foregroundColor:{opaqueColor:{rgbColor:hexToRgb01(s.textColor||"#000000")}}, fontSize:{magnitude:s.fontSize||9,unit:"PT"}, bold: !!s.bold },
+            style: { foregroundColor:{opaqueColor:{rgbColor:hexToRgb01(s.textColor||"#000000")}}, fontSize:{magnitude:fontSizePt,unit:"PT"}, bold: !!s.bold },
             fields: "foregroundColor,fontSize,bold",
           },
         });

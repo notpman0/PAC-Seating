@@ -2841,14 +2841,17 @@ User instruction: "${userPrompt}"`;
         if(row.label && isRowHiddenInView(key, row.label)) return;
         row.seats.forEach(seat=>{
           const y = seat.y - rowYShift(seat.row);
-          let fill = "#eef1f7", textColor = "#1f2430", text = String(seat.num);
-          if(seat.role==="teacher"){ fill = "#c0392b"; textColor = "#ffffff"; text = "T"; }
-          else if(seat.status==="banned"){ fill = "#f3c9c6"; textColor = "#e0453c"; text = "✕"; }
+          // Matches .seat / .seat.teacher / .seat.banned / .seat.assigned
+          // exactly, including the border color, which changes per state on
+          // the live map too (not just the fill) — this was missing before.
+          let fill = "#eef1f7", textColor = "#1f2430", text = String(seat.num), stroke = "#2b3240", strokeAlpha = 1;
+          if(seat.role==="teacher"){ fill = "#c0392b"; textColor = "#ffffff"; text = "T"; stroke = "#7a2118"; }
+          else if(seat.status==="banned"){ fill = "#f3c9c6"; textColor = "#e0453c"; text = "✕"; stroke = "#e0453c"; }
           else if(seat.groupId){
             const g = groupById(seat.groupId);
-            if(g){ fill = g.color; textColor = "#ffffff"; }
+            if(g){ fill = g.color; textColor = "#ffffff"; stroke = "#000000"; strokeAlpha = 0.35; }
           }
-          shapes.push({kind:"ellipse", x:seat.x-RADIUS, y:y-RADIUS, w:RADIUS*2, h:RADIUS*2, fill, stroke:"#2b3240", text, textColor, fontSize:7, bold:true, align:"center"});
+          shapes.push({kind:"ellipse", x:seat.x-RADIUS, y:y-RADIUS, w:RADIUS*2, h:RADIUS*2, fill, stroke, strokeAlpha, text, textColor, fontSize:7, bold:true, align:"center"});
         });
       });
     });
@@ -2888,13 +2891,18 @@ User instruction: "${userPrompt}"`;
     });
 
     shapes.push({kind:"rect", x:400, y:2, w:200, h:22, fill:"#1f2430", stroke:"#1f2430", text:"STAGE", textColor:"#ffffff", fontSize:12, bold:true, align:"center"});
+    // .exit-row .arrow is a solid red PILL BUTTON with white text, not plain
+    // red text — was missing its background entirely before.
+    function pushExitArrow(x, y, text){
+      shapes.push({kind:"rect", x, y:y-9, w:60, h:18, fill:"#e0453c", stroke:"#e0453c", text, textColor:"#ffffff", fontSize:9, bold:true, align:"center"});
+    }
     const exitY = 350 - (currentView==="noBalconyEV" ? EV_VIEW_ROW_SHIFT : 0);
-    shapes.push({kind:"text", x:15, y:exitY-9, w:70, h:18, text:"◀ EXIT", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
-    shapes.push({kind:"text", x:915, y:exitY-9, w:70, h:18, text:"EXIT ▶", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
+    pushExitArrow(15, exitY, "◀ EXIT");
+    pushExitArrow(925, exitY, "EXIT ▶");
     if(currentView!=="noBalconyEV"){
       shapes.push({kind:"text", x:450, y:613, w:100, h:16, text:"AISLE", textColor:"#68707d", fontSize:8, bold:true, align:"center"});
-      shapes.push({kind:"text", x:15, y:613, w:70, h:18, text:"◀ EXIT", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
-      shapes.push({kind:"text", x:915, y:613, w:70, h:18, text:"EXIT ▶", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
+      pushExitArrow(15, 613, "◀ EXIT");
+      pushExitArrow(925, 613, "EXIT ▶");
     }
 
     const bySectionClass = new Map();
@@ -2948,7 +2956,7 @@ User instruction: "${userPrompt}"`;
             fields: "shapeBackgroundFill.solidFill,outline.outlineFill.solidFill.color,outline.weight",
             shapeProperties: {
               shapeBackgroundFill: { solidFill: { color:{rgbColor:hexToRgb01(s.fill||"#ffffff")}, alpha: s.fillAlpha!==undefined?s.fillAlpha:1 } },
-              outline: { outlineFill:{solidFill:{color:{rgbColor:hexToRgb01(s.stroke||"#2b3240")}}}, weight:{magnitude:6350,unit:"EMU"} },
+              outline: { outlineFill:{solidFill:{color:{rgbColor:hexToRgb01(s.stroke||"#2b3240")}, alpha: s.strokeAlpha!==undefined?s.strokeAlpha:1}}, weight:{magnitude:6350,unit:"EMU"} },
             },
           },
         });
@@ -2963,12 +2971,16 @@ User instruction: "${userPrompt}"`;
         // fixed-point text overflowing across neighbors (the exact bug
         // reported from the first live export). 12700 EMU = 1pt.
         const fontSizePt = Math.max(4, Math.min(96, ((s.fontSize||9) * transform.scale) / 12700));
+        // Arial — the closest universally-available Slides font to the
+        // site's own -apple-system/Segoe UI/Roboto system-font stack, and
+        // explicit rather than left to whatever theme default a target
+        // deck happens to have.
         requests.push({
           updateTextStyle: {
             objectId,
             textRange: {type:"ALL"},
-            style: { foregroundColor:{opaqueColor:{rgbColor:hexToRgb01(s.textColor||"#000000")}}, fontSize:{magnitude:fontSizePt,unit:"PT"}, bold: !!s.bold },
-            fields: "foregroundColor,fontSize,bold",
+            style: { foregroundColor:{opaqueColor:{rgbColor:hexToRgb01(s.textColor||"#000000")}}, fontSize:{magnitude:fontSizePt,unit:"PT"}, bold: !!s.bold, fontFamily:"Arial" },
+            fields: "foregroundColor,fontSize,bold,fontFamily",
           },
         });
         if(s.align){

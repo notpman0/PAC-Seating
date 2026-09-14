@@ -254,6 +254,7 @@
     <button class="btn" id="calibrateBtn">📐 Calibrate</button>
     <button class="btn" id="aiToggleBtn">✨ AI Generate</button>
     <button class="btn" id="presetToggleBtn">📋 Preset Classes</button>
+    <button class="btn" id="slidesExportBtn">📊 Export to Google Slides</button>
     <div class="spacer"></div>
     <div id="stats"></div>
   </div>
@@ -341,6 +342,32 @@
   <div class="dlg-actions">
     <button class="btn" id="colorCancel">Cancel</button>
     <button class="btn" id="colorOk">Apply</button>
+  </div>
+</dialog>
+
+<dialog id="slidesExportDlg">
+  <div class="dlg-body">
+    <h3>Export to Google Slides</h3>
+    <div id="slidesExportStatus" class="calib-hint"></div>
+    <div id="slidesExportChoices" style="display:none;">
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+        <input type="radio" name="slidesTarget" value="new" checked> Create a new presentation
+      </label>
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input type="radio" name="slidesTarget" value="existing"> Add to an existing presentation
+      </label>
+      <div id="slidesExistingOptions" style="display:none;margin:8px 0 0 24px;">
+        <button class="btn" id="slidesPickBtn" type="button">Choose from Drive…</button>
+        <div id="slidesPickedName" class="calib-hint"></div>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+          <input type="checkbox" id="slidesReplaceFirst"> Replace the first slide (otherwise adds a new slide at the end)
+        </label>
+      </div>
+    </div>
+  </div>
+  <div class="dlg-actions">
+    <button class="btn" id="slidesExportCancel">Cancel</button>
+    <button class="btn primary" id="slidesExportGo" disabled>Export</button>
   </div>
 </dialog>
 
@@ -2689,6 +2716,396 @@ User instruction: "${userPrompt}"`;
   document.getElementById("aiPromptInput").addEventListener("keydown", (e)=>{
     if(e.key==="Enter") document.getElementById("aiGenerateBtn").click();
   });
+
+  // ---------- Export to Google Slides ----------
+  // Builds the currently-visible map (respecting whichever view tab is
+  // active) as REAL editable Slides shapes — colored ellipses for seats,
+  // text boxes for row/stage/exit/aisle labels, rectangles for class
+  // highlight regions — via the Slides API, not a pasted-in image. Auth
+  // uses Google Identity Services' token-client flow (no backend needed,
+  // since this is a pure client-side app with no server to hold a client
+  // secret); the Picker lets the user choose ANY existing presentation from
+  // their Drive without this app needing broad Drive access (drive.file
+  // scope only grants access to files created by the app OR explicitly
+  // picked through Picker — that's the whole reason Picker exists).
+  //
+  // GOOGLE_CLIENT_ID / GOOGLE_PICKER_API_KEY are deliberately blank here —
+  // they're public (safe to hardcode, not secrets) but need to come from a
+  // Google Cloud project someone sets up first. See the button's own
+  // behavior below for what happens if they're still blank.
+  const GOOGLE_CLIENT_ID = "274419609449-lb630dkppda7ck2gvatt9kif9g1n9vip.apps.googleusercontent.com";
+  const GOOGLE_PICKER_API_KEY = "";
+  const GOOGLE_SLIDES_SCOPES = "https://www.googleapis.com/auth/presentations https://www.googleapis.com/auth/drive.file";
+
+  let googleAccessToken = null;
+  let googleTokenClient = null;
+  let slidesPickedFile = null;
+
+  function loadScriptOnce(src){
+    return new Promise((resolve, reject)=>{
+      if(document.querySelector(`script[src="${src}"]`)){ resolve(); return; }
+      const s = document.createElement("script");
+      s.src = src; s.async = true;
+      s.onload = ()=>resolve();
+      s.onerror = ()=>reject(new Error("Couldn't load "+src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensureGoogleAuth(){
+    if(!GOOGLE_CLIENT_ID){
+      throw new Error("Google Slides export isn't configured yet — a developer needs to add a Google OAuth Client ID (see code comments near GOOGLE_CLIENT_ID).");
+    }
+    await loadScriptOnce("https://accounts.google.com/gsi/client");
+    if(!googleTokenClient){
+      googleTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: GOOGLE_SLIDES_SCOPES,
+        callback: ()=>{}, // replaced per-call below
+      });
+    }
+    if(googleAccessToken) return googleAccessToken;
+    return new Promise((resolve, reject)=>{
+      googleTokenClient.callback = (resp)=>{
+        if(resp.error){ reject(new Error(resp.error)); return; }
+        googleAccessToken = resp.access_token;
+        resolve(googleAccessToken);
+      };
+      googleTokenClient.requestAccessToken({prompt:"consent"});
+    });
+  }
+
+  async function ensurePicker(){
+    if(!GOOGLE_PICKER_API_KEY){
+      throw new Error("Google Picker isn't configured yet — a developer needs to add a Picker API key (see code comments near GOOGLE_PICKER_API_KEY).");
+    }
+    await loadScriptOnce("https://apis.google.com/js/api.js");
+    await new Promise(resolve=> gapi.load("picker", resolve));
+  }
+
+  function openSlidesPicker(){
+    return new Promise(resolve=>{
+      const view = new google.picker.View(google.picker.ViewId.PRESENTATIONS);
+      const picker = new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(googleAccessToken)
+        .setDeveloperKey(GOOGLE_PICKER_API_KEY)
+        .setCallback(data=>{
+          if(data.action === google.picker.Action.PICKED) resolve(data.docs[0]);
+          else if(data.action === google.picker.Action.CANCEL) resolve(null);
+        })
+        .build();
+      picker.setVisible(true);
+    });
+  }
+
+  function hexToRgb01(hex){
+    hex = hex.replace("#","");
+    return { red: parseInt(hex.substring(0,2),16)/255, green: parseInt(hex.substring(2,4),16)/255, blue: parseInt(hex.substring(4,6),16)/255 };
+  }
+
+  // Fits our 1000 x LOGICAL_H logical-unit canvas into a target Slides page
+  // (in EMU — English Metric Units, the Slides API's native unit, 914400
+  // per inch), centered with a small margin. Independent of anything
+  // on-screen (zoom, DOM layout) — pure logical-unit math, same category of
+  // fix as the balcony-highlight bug earlier, just avoided from the start
+  // this time.
+  function computeExportTransform(pageWidthEmu, pageHeightEmu){
+    const marginFrac = 0.04;
+    const availW = pageWidthEmu * (1 - marginFrac*2);
+    const availH = pageHeightEmu * (1 - marginFrac*2);
+    const scale = Math.min(availW/1000, availH/LOGICAL_H);
+    const contentW = 1000*scale, contentH = LOGICAL_H*scale;
+    const offsetX = (pageWidthEmu-contentW)/2, offsetY = (pageHeightEmu-contentH)/2;
+    return (x,y,w,h)=> ({ x: offsetX+x*scale, y: offsetY+y*scale, w: Math.max(w*scale,1), h: Math.max(h*scale,1) });
+  }
+
+  // Gathers every visible element (respecting the current view tab, same
+  // rules the map and auto-arrange use) as plain descriptors in logical
+  // units — kind is "ellipse" (seats), "text" (labels — borderless text
+  // box), or "rect" (stage panel, class-highlight background). Highlight
+  // regions are approximated as one bounding rectangle per class per
+  // section rather than the exact staircase polygon the on-screen map
+  // draws, to keep the total Slides API request count manageable.
+  function collectSlidesExportShapes(){
+    const shapes = [];
+    const RADIUS = 7;
+    const allSections = [...SEAT_SECTIONS, "balL", "balR"];
+
+    allSections.forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
+      const sec = state.sections[key];
+      sec.rows.forEach(row=>{
+        if(row.label && isRowHiddenInView(key, row.label)) return;
+        row.seats.forEach(seat=>{
+          const y = seat.y - rowYShift(seat.row);
+          let fill = "#eef1f7", textColor = "#1f2430", text = String(seat.num);
+          if(seat.role==="teacher"){ fill = "#c0392b"; textColor = "#ffffff"; text = "T"; }
+          else if(seat.status==="banned"){ fill = "#f3c9c6"; textColor = "#e0453c"; text = "✕"; }
+          else if(seat.groupId){
+            const g = groupById(seat.groupId);
+            if(g){ fill = g.color; textColor = "#ffffff"; }
+          }
+          shapes.push({kind:"ellipse", x:seat.x-RADIUS, y:y-RADIUS, w:RADIUS*2, h:RADIUS*2, fill, stroke:"#2b3240", text, textColor, fontSize:7, bold:true, align:"center"});
+        });
+      });
+    });
+
+    function pushRowLabel(sectionKey, rowLabel, side, forcedX){
+      if(!isRowVisible(sectionKey, rowLabel)) return;
+      const sec = state.sections[sectionKey];
+      const row = sec.rows.find(r=>r.label===rowLabel);
+      if(!row || !row.seats.length) return;
+      let x = forcedX;
+      if(x === undefined){
+        const xs = row.seats.map(s=>s.x);
+        x = side==="left" ? Math.min(...xs)-16 : Math.max(...xs)+16;
+      }
+      const y = row.seats[0].y - rowYShift(rowLabel);
+      shapes.push({kind:"text", x:x-9, y:y-9, w:18, h:18, text:rowLabel, textColor:"#1f2430", fontSize:9, bold:true, align:"center"});
+    }
+    UPPER_ROWS.forEach(l=>{
+      pushRowLabel("upperLeft", l, "left"); pushRowLabel("upperLeft", l, "right");
+      pushRowLabel("upperCenter", l, "left"); pushRowLabel("upperCenter", l, "right");
+      pushRowLabel("upperRight", l, "left"); pushRowLabel("upperRight", l, "right");
+    });
+    LOWER_ROWS.forEach(l=>{
+      pushRowLabel("lowerLeft", l, "left"); pushRowLabel("lowerLeft", l, "right");
+      pushRowLabel("lowerCenter", l, "left"); pushRowLabel("lowerCenter", l, "right");
+      pushRowLabel("lowerRight", l, "left"); pushRowLabel("lowerRight", l, "right");
+    });
+    const lowerCenterVRow = state.sections.lowerCenter.rows.find(r=>r.label==="V");
+    const lowerCenterVXs = lowerCenterVRow ? lowerCenterVRow.seats.map(s=>s.x) : null;
+    const rearCenterLeftX = lowerCenterVXs ? Math.min(...lowerCenterVXs)-16 : undefined;
+    const rearCenterRightX = lowerCenterVXs ? Math.max(...lowerCenterVXs)+16 : undefined;
+    REAR_ROWS.forEach(l=>{
+      pushRowLabel("rearCenter", l, "left", rearCenterLeftX);
+      pushRowLabel("rearCenter", l, "right", rearCenterRightX);
+      pushRowLabel("rearLeft", l, "right");
+      pushRowLabel("rearRight", l, "left");
+    });
+
+    shapes.push({kind:"rect", x:400, y:2, w:200, h:22, fill:"#1f2430", stroke:"#1f2430", text:"STAGE", textColor:"#ffffff", fontSize:12, bold:true, align:"center"});
+    const exitY = 350 - (currentView==="noBalconyEV" ? EV_VIEW_ROW_SHIFT : 0);
+    shapes.push({kind:"text", x:15, y:exitY-9, w:70, h:18, text:"◀ EXIT", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
+    shapes.push({kind:"text", x:915, y:exitY-9, w:70, h:18, text:"EXIT ▶", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
+    if(currentView!=="noBalconyEV"){
+      shapes.push({kind:"text", x:450, y:613, w:100, h:16, text:"AISLE", textColor:"#68707d", fontSize:8, bold:true, align:"center"});
+      shapes.push({kind:"text", x:15, y:613, w:70, h:18, text:"◀ EXIT", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
+      shapes.push({kind:"text", x:915, y:613, w:70, h:18, text:"EXIT ▶", textColor:"#e0453c", fontSize:9, bold:true, align:"center"});
+    }
+
+    const bySectionClass = new Map();
+    allSections.forEach(key=>{
+      if(isSectionHiddenInView(key)) return;
+      const sec = state.sections[key];
+      sec.rows.forEach(row=>{
+        if(row.label && isRowHiddenInView(key, row.label)) return;
+        row.seats.forEach(seat=>{
+          if(seat.role==="teacher" || !seat.groupId) return;
+          const k = key+"|"+seat.groupId;
+          if(!bySectionClass.has(k)) bySectionClass.set(k, []);
+          bySectionClass.get(k).push(seat);
+        });
+      });
+    });
+    bySectionClass.forEach((seats, key)=>{
+      if(seats.length<3) return;
+      const g = groupById(key.split("|")[1]);
+      if(!g) return;
+      const xs = seats.map(s=>s.x), ys = seats.map(s=>s.y - rowYShift(s.row));
+      const x1=Math.min(...xs)-9, x2=Math.max(...xs)+9, y1=Math.min(...ys)-12, y2=Math.max(...ys)+12;
+      shapes.push({kind:"rect", x:x1, y:y1, w:x2-x1, h:y2-y1, fill:g.color, fillAlpha:0.22, stroke:g.color});
+      shapes.push({kind:"text", x:(x1+x2)/2-45, y:(y1+y2)/2-11, w:90, h:22, text:g.name, textColor:"#000000", fontSize:14, bold:true, align:"center"});
+    });
+
+    return shapes;
+  }
+
+  function shapesToSlidesRequests(shapes, transform, pageObjectId){
+    const requests = [];
+    let uid = 0;
+    shapes.forEach(s=>{
+      const r = transform(s.x, s.y, s.w, s.h);
+      const objectId = "shp"+(uid++)+"_"+Math.random().toString(36).slice(2,8);
+      const shapeType = s.kind==="ellipse" ? "ELLIPSE" : (s.kind==="text" ? "TEXT_BOX" : "RECTANGLE");
+      requests.push({
+        createShape: {
+          objectId, shapeType,
+          elementProperties: {
+            pageObjectId,
+            size: { width:{magnitude:r.w, unit:"EMU"}, height:{magnitude:r.h, unit:"EMU"} },
+            transform: { scaleX:1, scaleY:1, translateX:r.x, translateY:r.y, unit:"EMU" },
+          },
+        },
+      });
+      if(s.kind!=="text"){
+        requests.push({
+          updateShapeProperties: {
+            objectId,
+            fields: "shapeBackgroundFill.solidFill,outline.outlineFill.solidFill.color,outline.weight",
+            shapeProperties: {
+              shapeBackgroundFill: { solidFill: { color:{rgbColor:hexToRgb01(s.fill||"#ffffff")}, alpha: s.fillAlpha!==undefined?s.fillAlpha:1 } },
+              outline: { outlineFill:{solidFill:{color:{rgbColor:hexToRgb01(s.stroke||"#2b3240")}}}, weight:{magnitude:6350,unit:"EMU"} },
+            },
+          },
+        });
+      }
+      if(s.text){
+        requests.push({ insertText: { objectId, text: s.text } });
+        requests.push({
+          updateTextStyle: {
+            objectId,
+            textRange: {type:"ALL"},
+            style: { foregroundColor:{opaqueColor:{rgbColor:hexToRgb01(s.textColor||"#000000")}}, fontSize:{magnitude:s.fontSize||9,unit:"PT"}, bold: !!s.bold },
+            fields: "foregroundColor,fontSize,bold",
+          },
+        });
+        if(s.align){
+          requests.push({ updateParagraphStyle: { objectId, textRange:{type:"ALL"}, style:{alignment: s.align==="center"?"CENTER":"START"}, fields:"alignment" } });
+        }
+      }
+    });
+    return requests;
+  }
+
+  async function sendSlidesBatchesChunked(presentationId, requests, onProgress){
+    if(!requests.length) return;
+    const CHUNK = 300;
+    for(let i=0;i<requests.length;i+=CHUNK){
+      const chunk = requests.slice(i, i+CHUNK);
+      const res = await fetch(`https://slides.googleapis.com/v1/presentations/${presentationId}:batchUpdate`, {
+        method: "POST",
+        headers: { "Authorization":"Bearer "+googleAccessToken, "Content-Type":"application/json" },
+        body: JSON.stringify({ requests: chunk }),
+      });
+      if(!res.ok){
+        const errText = await res.text();
+        throw new Error(`Slides API error ${res.status}: ${errText.slice(0,300)}`);
+      }
+      if(onProgress) onProgress(Math.min(i+CHUNK, requests.length), requests.length);
+    }
+  }
+
+  async function runSlidesExport(){
+    const statusEl = document.getElementById("slidesExportStatus");
+    const goBtn = document.getElementById("slidesExportGo");
+    const target = document.querySelector('input[name="slidesTarget"]:checked').value;
+    goBtn.disabled = true;
+    try{
+      statusEl.textContent = "Preparing…";
+      let presentationId, targetPageObjectId, pageSize, clearExisting = false;
+
+      if(target==="new"){
+        const createRes = await fetch("https://slides.googleapis.com/v1/presentations", {
+          method:"POST",
+          headers: {"Authorization":"Bearer "+googleAccessToken, "Content-Type":"application/json"},
+          body: JSON.stringify({ title: "PAC Seating Chart" }),
+        });
+        if(!createRes.ok) throw new Error("Couldn't create a new presentation ("+createRes.status+")");
+        const pres = await createRes.json();
+        presentationId = pres.presentationId;
+        targetPageObjectId = pres.slides[0].objectId;
+        pageSize = pres.pageSize; // Slides' own default (API can't request a custom size at creation)
+        clearExisting = true; // the default title slide has placeholder shapes to remove first
+      } else {
+        if(!slidesPickedFile) throw new Error("Pick a presentation from Drive first.");
+        presentationId = slidesPickedFile.id;
+        const getRes = await fetch(`https://slides.googleapis.com/v1/presentations/${presentationId}?fields=pageSize,slides.objectId`, {
+          headers: {"Authorization":"Bearer "+googleAccessToken},
+        });
+        if(!getRes.ok) throw new Error("Couldn't read that presentation ("+getRes.status+")");
+        const pres = await getRes.json();
+        pageSize = pres.pageSize;
+        const replaceFirst = document.getElementById("slidesReplaceFirst").checked;
+        if(replaceFirst && pres.slides && pres.slides.length){
+          targetPageObjectId = pres.slides[0].objectId;
+          clearExisting = true;
+        } else {
+          const newSlideId = "slide_"+Math.random().toString(36).slice(2,9);
+          await sendSlidesBatchesChunked(presentationId, [{
+            createSlide: { objectId:newSlideId, slideLayoutReference:{predefinedLayout:"BLANK"} },
+          }]);
+          targetPageObjectId = newSlideId; // BLANK layout starts empty — nothing to clear
+        }
+      }
+
+      if(clearExisting){
+        statusEl.textContent = "Clearing existing slide content…";
+        const getRes2 = await fetch(`https://slides.googleapis.com/v1/presentations/${presentationId}?fields=slides(objectId,pageElements.objectId)`, {
+          headers: {"Authorization":"Bearer "+googleAccessToken},
+        });
+        const pres2 = await getRes2.json();
+        const targetSlide = (pres2.slides||[]).find(s=>s.objectId===targetPageObjectId);
+        const deleteReqs = (targetSlide && targetSlide.pageElements || []).map(el=>({ deleteObject:{objectId:el.objectId} }));
+        if(deleteReqs.length) await sendSlidesBatchesChunked(presentationId, deleteReqs);
+      }
+
+      statusEl.textContent = "Building chart…";
+      const transform = computeExportTransform(pageSize.width.magnitude, pageSize.height.magnitude);
+      const shapes = collectSlidesExportShapes();
+      const requests = shapesToSlidesRequests(shapes, transform, targetPageObjectId);
+
+      await sendSlidesBatchesChunked(presentationId, requests, (done,total)=>{
+        statusEl.textContent = `Adding shapes… ${done}/${total}`;
+      });
+
+      statusEl.textContent = "Done! Opening it now…";
+      window.open(`https://docs.google.com/presentation/d/${presentationId}/edit`, "_blank");
+      setTimeout(()=>{ document.getElementById("slidesExportDlg").close(); }, 800);
+    } catch(err){
+      statusEl.textContent = "Error: "+err.message;
+    } finally {
+      goBtn.disabled = false;
+    }
+  }
+
+  document.getElementById("slidesExportBtn").addEventListener("click", async ()=>{
+    const dlg = document.getElementById("slidesExportDlg");
+    const statusEl = document.getElementById("slidesExportStatus");
+    const choicesEl = document.getElementById("slidesExportChoices");
+    const goBtn = document.getElementById("slidesExportGo");
+    choicesEl.style.display = "none";
+    goBtn.disabled = true;
+    slidesPickedFile = null;
+    document.getElementById("slidesPickedName").textContent = "";
+    document.getElementById("slidesReplaceFirst").checked = false;
+    document.querySelector('input[name="slidesTarget"][value="new"]').checked = true;
+    document.getElementById("slidesExistingOptions").style.display = "none";
+    statusEl.textContent = "Signing in to Google…";
+    dlg.showModal();
+    try{
+      await ensureGoogleAuth();
+      statusEl.textContent = "";
+      choicesEl.style.display = "";
+      goBtn.disabled = false;
+    } catch(err){
+      statusEl.textContent = "Error: "+err.message;
+    }
+  });
+  document.querySelectorAll('input[name="slidesTarget"]').forEach(r=>{
+    r.addEventListener("change", ()=>{
+      document.getElementById("slidesExistingOptions").style.display =
+        document.querySelector('input[name="slidesTarget"]:checked').value==="existing" ? "" : "none";
+    });
+  });
+  document.getElementById("slidesPickBtn").addEventListener("click", async ()=>{
+    const statusEl = document.getElementById("slidesExportStatus");
+    try{
+      await ensurePicker();
+      const doc = await openSlidesPicker();
+      if(doc){
+        slidesPickedFile = doc;
+        document.getElementById("slidesPickedName").textContent = "Selected: "+doc.name;
+      }
+    } catch(err){
+      statusEl.textContent = "Picker error: "+err.message;
+    }
+  });
+  document.getElementById("slidesExportCancel").addEventListener("click", ()=>{
+    document.getElementById("slidesExportDlg").close();
+  });
+  document.getElementById("slidesExportGo").addEventListener("click", runSlidesExport);
 
   render();
   fitZoomToScreen();

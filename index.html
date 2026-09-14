@@ -2830,7 +2830,16 @@ User instruction: "${userPrompt}"`;
   // section rather than the exact staircase polygon the on-screen map
   // draws, to keep the total Slides API request count manageable.
   function collectSlidesExportShapes(){
-    const shapes = [];
+    // Stacking order matters as much as position/color for "matching the
+    // website exactly" — Slides paints createShape requests in array order
+    // (later = on top), same as DOM append order does for the live map.
+    // The map's own render() order is: highlight boxes -> row labels ->
+    // SEATS -> highlight labels (seats sit on top of labels, never under
+    // them — a nearby row label was previously able to paint over part of
+    // a seat's own number since seats were pushed first). Collected into
+    // separate arrays and concatenated in that exact order at the end,
+    // regardless of what order they're computed in below.
+    const highlightBoxShapes = [], labelShapes = [], seatShapes = [], highlightLabelShapes = [];
     const RADIUS = 7;
     const allSections = [...SEAT_SECTIONS, "balL", "balR"];
 
@@ -2851,7 +2860,7 @@ User instruction: "${userPrompt}"`;
             const g = groupById(seat.groupId);
             if(g){ fill = g.color; textColor = "#ffffff"; stroke = "#000000"; strokeAlpha = 0.35; }
           }
-          shapes.push({kind:"ellipse", x:seat.x-RADIUS, y:y-RADIUS, w:RADIUS*2, h:RADIUS*2, fill, stroke, strokeAlpha, text, textColor, fontSize:7, bold:true, align:"center"});
+          seatShapes.push({kind:"ellipse", x:seat.x-RADIUS, y:y-RADIUS, w:RADIUS*2, h:RADIUS*2, fill, stroke, strokeAlpha, text, textColor, fontSize:7, bold:true, align:"center"});
         });
       });
     });
@@ -2867,7 +2876,7 @@ User instruction: "${userPrompt}"`;
         x = side==="left" ? Math.min(...xs)-16 : Math.max(...xs)+16;
       }
       const y = row.seats[0].y - rowYShift(rowLabel);
-      shapes.push({kind:"text", x:x-9, y:y-9, w:18, h:18, text:rowLabel, textColor:"#1f2430", fontSize:9, bold:true, align:"center"});
+      labelShapes.push({kind:"text", x:x-9, y:y-9, w:18, h:18, text:rowLabel, textColor:"#1f2430", fontSize:9, bold:true, align:"center"});
     }
     UPPER_ROWS.forEach(l=>{
       pushRowLabel("upperLeft", l, "left"); pushRowLabel("upperLeft", l, "right");
@@ -2890,17 +2899,17 @@ User instruction: "${userPrompt}"`;
       pushRowLabel("rearRight", l, "left");
     });
 
-    shapes.push({kind:"rect", x:400, y:2, w:200, h:22, fill:"#1f2430", stroke:"#1f2430", text:"STAGE", textColor:"#ffffff", fontSize:12, bold:true, align:"center"});
+    labelShapes.push({kind:"rect", x:400, y:2, w:200, h:22, fill:"#1f2430", stroke:"#1f2430", text:"STAGE", textColor:"#ffffff", fontSize:12, bold:true, align:"center"});
     // .exit-row .arrow is a solid red PILL BUTTON with white text, not plain
     // red text — was missing its background entirely before.
     function pushExitArrow(x, y, text){
-      shapes.push({kind:"rect", x, y:y-9, w:60, h:18, fill:"#e0453c", stroke:"#e0453c", text, textColor:"#ffffff", fontSize:9, bold:true, align:"center"});
+      labelShapes.push({kind:"rect", x, y:y-9, w:60, h:18, fill:"#e0453c", stroke:"#e0453c", text, textColor:"#ffffff", fontSize:9, bold:true, align:"center"});
     }
     const exitY = 350 - (currentView==="noBalconyEV" ? EV_VIEW_ROW_SHIFT : 0);
     pushExitArrow(15, exitY, "◀ EXIT");
     pushExitArrow(925, exitY, "EXIT ▶");
     if(currentView!=="noBalconyEV"){
-      shapes.push({kind:"text", x:450, y:613, w:100, h:16, text:"AISLE", textColor:"#68707d", fontSize:8, bold:true, align:"center"});
+      labelShapes.push({kind:"text", x:450, y:613, w:100, h:16, text:"AISLE", textColor:"#68707d", fontSize:8, bold:true, align:"center"});
       pushExitArrow(15, 613, "◀ EXIT");
       pushExitArrow(925, 613, "EXIT ▶");
     }
@@ -2925,11 +2934,11 @@ User instruction: "${userPrompt}"`;
       if(!g) return;
       const xs = seats.map(s=>s.x), ys = seats.map(s=>s.y - rowYShift(s.row));
       const x1=Math.min(...xs)-9, x2=Math.max(...xs)+9, y1=Math.min(...ys)-12, y2=Math.max(...ys)+12;
-      shapes.push({kind:"rect", x:x1, y:y1, w:x2-x1, h:y2-y1, fill:g.color, fillAlpha:0.22, stroke:g.color});
-      shapes.push({kind:"text", x:(x1+x2)/2-45, y:(y1+y2)/2-11, w:90, h:22, text:g.name, textColor:"#000000", fontSize:14, bold:true, align:"center"});
+      highlightBoxShapes.push({kind:"rect", x:x1, y:y1, w:x2-x1, h:y2-y1, fill:g.color, fillAlpha:0.22, stroke:g.color});
+      highlightLabelShapes.push({kind:"text", x:(x1+x2)/2-45, y:(y1+y2)/2-11, w:90, h:22, text:g.name, textColor:"#000000", fontSize:14, bold:true, align:"center"});
     });
 
-    return shapes;
+    return [...highlightBoxShapes, ...labelShapes, ...seatShapes, ...highlightLabelShapes];
   }
 
   function shapesToSlidesRequests(shapes, transform, pageObjectId){

@@ -2840,12 +2840,21 @@ User instruction: "${userPrompt}"`;
     // separate arrays and concatenated in that exact order at the end,
     // regardless of what order they're computed in below.
     const highlightBoxShapes = [], labelShapes = [], seatShapes = [], highlightLabelShapes = [];
-    const RADIUS = 7;
+    // Main floor seats sit on a 17.5-unit pitch (GLOBAL_PITCH), so a 7-unit
+    // radius (14-unit diameter) leaves a healthy 3.5-unit gap. The balcony's
+    // grid is much tighter — 51 seats in 3 cols x 17 rows over a 225-unit
+    // span works out to a 14.06-unit ROW pitch — so that same radius left
+    // adjacent balcony rows just 0.06 units apart, ie. nearly touching
+    // (measured directly from BAL_BOUNDS/balconyRow's own math). That's the
+    // "numbers covered / not aligned" bug reported — it only showed in the
+    // balcony's dense grid, never on the main floor.
+    const RADIUS_MAIN = 7, RADIUS_BALCONY = 5;
     const allSections = [...SEAT_SECTIONS, "balL", "balR"];
 
     allSections.forEach(key=>{
       if(isSectionHiddenInView(key)) return;
       const sec = state.sections[key];
+      const radius = (key==="balL" || key==="balR") ? RADIUS_BALCONY : RADIUS_MAIN;
       sec.rows.forEach(row=>{
         if(row.label && isRowHiddenInView(key, row.label)) return;
         row.seats.forEach(seat=>{
@@ -2860,7 +2869,7 @@ User instruction: "${userPrompt}"`;
             const g = groupById(seat.groupId);
             if(g){ fill = g.color; textColor = "#ffffff"; stroke = "#000000"; strokeAlpha = 0.35; }
           }
-          seatShapes.push({kind:"ellipse", x:seat.x-RADIUS, y:y-RADIUS, w:RADIUS*2, h:RADIUS*2, fill, stroke, strokeAlpha, text, textColor, fontSize:7, bold:true, align:"center"});
+          seatShapes.push({kind:"ellipse", x:seat.x-radius, y:y-radius, w:radius*2, h:radius*2, fill, stroke, strokeAlpha, text, textColor, fontSize:radius, bold:true, align:"center"});
         });
       });
     });
